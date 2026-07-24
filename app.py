@@ -813,3 +813,554 @@ if apply_assumptions:
 
 
 # =====================================================
+# MAIN PAGE
+# =====================================================
+
+st.title("AI Enabled Workforce & Capacity Planning")
+
+st.info(
+    "Upload workforce_input.csv, update assumptions, review 3-year forecast, "
+    "H1/H2 hiring, and ML feedback."
+)
+
+uploaded_file = st.file_uploader(
+    "Upload workforce_input.csv",
+    type=["csv"],
+)
+
+if uploaded_file is not None:
+    current_file_id = f"{uploaded_file.name}_{len(uploaded_file.getvalue())}"
+
+    if current_file_id != st.session_state.uploaded_file_id:
+        raw_df = safe_read_csv(uploaded_file)
+        st.session_state.input_df = validate_input_data(raw_df)
+        st.session_state.uploaded_file_id = current_file_id
+        st.session_state.needs_recalc = True
+        st.success("CSV uploaded successfully.")
+
+
+if st.session_state.input_df is None:
+    st.warning("Please upload workforce_input.csv to start workforce planning.")
+    st.stop()
+
+
+original_df = st.session_state.input_df
+
+
+# =====================================================
+# DASHBOARD FILTERS
+# =====================================================
+
+st.markdown("### Dashboard Filters")
+
+filter_col1, filter_col2 = st.columns(2)
+
+filtered_df = original_df.copy()
+
+with filter_col1:
+    if "Year" in filtered_df.columns:
+        available_years = (
+            filtered_df["Year"]
+            .dropna()
+            .astype(int)
+            .sort_values()
+            .unique()
+            .tolist()
+        )
+
+        selected_years = st.multiselect(
+            "Select Baseline Year",
+            options=available_years,
+            default=available_years,
+        )
+
+        filtered_df = filtered_df[
+            filtered_df["Year"].astype(int).isin(selected_years)
+        ]
+
+    else:
+        selected_years = ["All"]
+
+with filter_col2:
+    available_regions = [
+        region for region in REGIONS
+        if region in filtered_df["Region"].unique()
+    ]
+
+    selected_regions = st.multiselect(
+        "Select Region",
+        options=available_regions,
+        default=available_regions,
+    )
+
+    filtered_df = filtered_df[
+        filtered_df["Region"].isin(selected_regions)
+    ]
+
+
+if filtered_df.empty:
+    st.warning("No data available for selected filters.")
+    st.stop()
+
+
+df = filtered_df
+
+filter_signature = (
+    tuple(selected_years),
+    tuple(selected_regions),
+    int(len(df)),
+    tuple(
+        (
+            year,
+            st.session_state.hiring_split_parameters[year]["H1"],
+            st.session_state.hiring_split_parameters[year]["H2"],
+        )
+        for year in FORECAST_YEARS
+    ),
+)
+
+if st.session_state.last_filter_signature != filter_signature:
+    st.session_state.needs_recalc = True
+    st.session_state.last_filter_signature = filter_signature
+
+
+# =====================================================
+# CALCULATE WORKFORCE
+# =====================================================
+
+if st.session_state.needs_recalc or st.session_state.result_df is None:
+    result = calculate_workforce(
+        df=df,
+        growth_parameters=st.session_state.growth_parameters,
+        attrition_parameters=st.session_state.attrition_parameters,
+        productive_hours=st.session_state.productive_hours,
+        working_days=st.session_state.working_days,
+        target_utilization=st.session_state.target_utilization,
+        forecast_years=FORECAST_YEARS,
+        hiring_split_parameters=st.session_state.hiring_split_parameters,
+    )
+
+    st.session_state.result_df = result
+    st.session_state.needs_recalc = False
+
+else:
+    result = st.session_state.result_df
+
+
+# =====================================================
+# DASHBOARD SUMMARY
+# =====================================================
+
+st.subheader("Dashboard Summary")
+
+total_current = df["Current_SE"].sum()
+final_year = max(FORECAST_YEARS)
+
+final_required = round(
+    result[result["Forecast Year"] == final_year]["Combined Required Engineers"].sum(),
+    1,
+)
+
+total_hiring = int(result["Combined Additional Required"].sum())
+total_h1 = int(result["H1 Hiring"].sum())
+total_h2 = int(result["H2 Hiring"].sum())
+
+summary_cols = st.columns(5)
+
+summary_cols[0].metric("Baseline SE", round(total_current, 1))
+summary_cols[1].metric(f"{final_year} Required SE", final_required)
+summary_cols[2].metric("3-Year Hiring", total_hiring)
+summary_cols[3].metric("H1 Hiring Total", total_h1)
+summary_cols[4].metric("H2 Hiring Total", total_h2)
+
+
+# =====================================================
+# VISUAL DASHBOARD
+# =====================================================
+
+st.markdown("---")
+st.subheader("Visual Dashboard")
+
+st.markdown("### Base Line Dashboard")
+
+base1, base2 = st.columns(2)
+
+with base1:
+    base_product = (
+        df.groupby("Product")["Current_SE"]
+        .sum()
+        .reset_index()
+        .rename(columns={"Current_SE": "Existing SE"})
+    )
+
+    show_bar_chart_with_values(
+        base_product,
+        "Product",
+        "Existing SE",
+        "Base Line Existing Resource by Product",
+        "Product",
+    )
+
+with base2:
+    base_region = (
+        df.groupby("Region")["Current_SE"]
+        .sum()
+        .reset_index()
+        .rename(columns={"Current_SE": "Existing SE"})
+    )
+
+    show_bar_chart_with_values(
+        base_region,
+        "Region",
+        "Existing SE",
+        "Base Line Existing Resource by Region",
+        "Region",
+    )
+
+
+st.markdown("### 3-Year Forecast Dashboard")
+
+year_req = (
+    result.groupby("Forecast Year")["Combined Required Engineers"]
+    .sum()
+    .reset_index()
+)
+
+year_hiring = (
+    result.groupby("Forecast Year")[["H1 Hiring", "H2 Hiring"]]
+    .sum()
+    .reset_index()
+)
+
+c1, c2 = st.columns(2)
+
+with c1:
+    show_bar_chart_with_values(
+        year_req,
+        "Forecast Year",
+        "Combined Required Engineers",
+        "Required SE by Forecast Year",
+        "Forecast Year",
+    )
+
+with c2:
+    fig = px.bar(
+        year_hiring,
+        x="Forecast Year",
+        y=["H1 Hiring", "H2 Hiring"],
+        barmode="group",
+        text_auto=True,
+        title="Hiring Plan by Year: H1 and H2",
+    )
+
+    fig.update_layout(
+        height=430,
+        xaxis_title="",
+        yaxis_title="Hiring",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+    )
+
+    fig.update_xaxes(
+        fixedrange=True,
+    )
+
+    fig.update_yaxes(
+        fixedrange=True,
+        rangemode="tozero",
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "displayModeBar": False,
+            "scrollZoom": False,
+        },
+    )
+
+
+c3, c4 = st.columns(2)
+
+with c3:
+    product_year = (
+        result.groupby(["Forecast Year", "Product"])["Combined Required Engineers"]
+        .sum()
+        .reset_index()
+    )
+
+    fig = px.line(
+        product_year,
+        x="Forecast Year",
+        y="Combined Required Engineers",
+        color="Product",
+        markers=True,
+        title="Product-wise Requirement Trend",
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "displayModeBar": False,
+            "scrollZoom": False,
+        },
+    )
+
+with c4:
+    region_year = (
+        result.groupby(["Forecast Year", "Region"])["Combined Required Engineers"]
+        .sum()
+        .reset_index()
+    )
+
+    fig = px.line(
+        region_year,
+        x="Forecast Year",
+        y="Combined Required Engineers",
+        color="Region",
+        markers=True,
+        title="Region-wise Requirement Trend",
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "displayModeBar": False,
+            "scrollZoom": False,
+        },
+    )
+
+
+# =====================================================
+# TABS
+# =====================================================
+
+tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+    [
+        "Executive Summary",
+        "3-Year Forecast",
+        "Hiring Plan H1-H2",
+        "ML Feedback",
+        "Input Data",
+        "Full Results",
+        "DC and Combined",
+        "Download",
+    ]
+)
+
+
+with tab0:
+    st.subheader("Executive Summary")
+
+    selected_year_text = (
+        ", ".join([str(year) for year in selected_years])
+        if selected_years
+        else "All"
+    )
+
+    selected_region_text = (
+        ", ".join(selected_regions)
+        if selected_regions
+        else "All"
+    )
+
+    st.markdown(
+        f"Current view: **Baseline Year = {selected_year_text}**, "
+        f"**Region = {selected_region_text}**."
+    )
+
+    exec_cols = st.columns(4)
+
+    exec_cols[0].metric("Baseline SE", round(total_current, 1))
+    exec_cols[1].metric(f"{final_year} Required SE", final_required)
+    exec_cols[2].metric("3-Year Hiring", total_hiring)
+    exec_cols[3].metric("H1 / H2 Hiring", f"{total_h1} / {total_h2}")
+
+    st.markdown(
+        """
+        The system now provides a rolling 3-year forecast, splits annual hiring
+        into H1 and H2, and captures manual forecast feedback for ML-based correction.
+        """
+    )
+
+    year_summary = (
+        result.groupby("Forecast Year")
+        .agg(
+            Required_SE=("Combined Required Engineers", "sum"),
+            Additional_Required=("Combined Additional Required", "sum"),
+            H1_Hiring=("H1 Hiring", "sum"),
+            H2_Hiring=("H2 Hiring", "sum"),
+            Closing_SE=("Closing SE", "sum"),
+        )
+        .reset_index()
+    )
+
+    st.markdown("### Year-wise Summary")
+
+    st.dataframe(
+        year_summary.round(1),
+        use_container_width=True,
+    )
+
+
+with tab1:
+    st.subheader("3-Year Forecast")
+
+    st.dataframe(
+        result,
+        use_container_width=True,
+    )
+
+
+with tab2:
+    st.subheader("Hiring Plan H1-H2")
+
+    hiring_plan = (
+        result.groupby(["Forecast Year", "Region", "Product"])[
+            [
+                "Combined Additional Required",
+                "H1 Hiring",
+                "H2 Hiring",
+            ]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    st.dataframe(
+        hiring_plan,
+        use_container_width=True,
+    )
+
+
+with tab3:
+    st.subheader("ML Feedback")
+
+    st.info(
+        "Upload manual-approved forecasts here. The app computes correction factors "
+        "by Region + Product and shows an ML-adjusted view."
+    )
+
+    template = build_feedback_template(result)
+
+    st.download_button(
+        "Download ML Feedback Template",
+        data=template.to_csv(index=False).encode("utf-8"),
+        file_name="ml_feedback_template.csv",
+        mime="text/csv",
+    )
+
+    feedback_upload = st.file_uploader(
+        "Upload completed ML feedback CSV",
+        type=["csv"],
+        key="ml_feedback_upload",
+    )
+
+    if feedback_upload is not None:
+        feedback_df = safe_read_csv(feedback_upload)
+
+        ml_adjusted_result, ml_factors = apply_feedback_correction(
+            result,
+            feedback_df,
+        )
+
+        st.markdown("### Learned Correction Factors")
+
+        st.dataframe(
+            ml_factors,
+            use_container_width=True,
+        )
+
+        st.markdown("### ML Adjusted Forecast")
+
+        st.dataframe(
+            ml_adjusted_result,
+            use_container_width=True,
+        )
+
+    else:
+        st.dataframe(
+            template,
+            use_container_width=True,
+        )
+
+
+with tab4:
+    st.subheader("Uploaded Input Data")
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+    )
+
+
+with tab5:
+    st.subheader("Full Results")
+
+    st.dataframe(
+        result,
+        use_container_width=True,
+    )
+
+
+with tab6:
+    st.subheader("DC Addition Requirement Table")
+
+    dc_table = result.pivot_table(
+        values="DC Incremental Engineers",
+        index="Product",
+        columns=["Forecast Year", "Region"],
+        fill_value=0,
+        aggfunc="sum",
+    )
+
+    st.dataframe(
+        dc_table.round(1),
+        use_container_width=True,
+    )
+
+    st.subheader("Combined Hiring Requirement Table")
+
+    hiring_table = result.pivot_table(
+        values="Combined Additional Required",
+        index="Product",
+        columns=["Forecast Year", "Region"],
+        fill_value=0,
+        aggfunc="sum",
+    )
+
+    st.dataframe(
+        hiring_table.round(1),
+        use_container_width=True,
+    )
+
+
+with tab7:
+    st.subheader("Download Output")
+
+    st.download_button(
+        "Download 3-Year Forecast Output",
+        data=result.to_csv(index=False).encode("utf-8"),
+        file_name="three_year_workforce_forecast.csv",
+        mime="text/csv",
+    )
+
+    hiring_download = result[
+        [
+            "Forecast Year",
+            "Region",
+            "Product",
+            "Combined Additional Required",
+            "H1 Hiring",
+            "H2 Hiring",
+        ]
+    ]
+
+    st.download_button(
+        "Download Hiring Plan",
+        data=hiring_download.to_csv(index=False).encode("utf-8"),
+        file_name="h1_h2_hiring_plan.csv",
+        mime="text/csv",
+    )
