@@ -14,9 +14,6 @@ from workforce_model import (
 )
 
 
-# ------------------------------------------------------------
-# Page configuration
-# ------------------------------------------------------------
 st.set_page_config(
     page_title="Workforce Planning App",
     page_icon="📊",
@@ -24,14 +21,7 @@ st.set_page_config(
 )
 
 
-# ------------------------------------------------------------
-# Session state initialization
-# ------------------------------------------------------------
 def initialize_session_state():
-    """
-    Initialize all editable assumptions in session state.
-    """
-
     if "base_workforce" not in st.session_state:
         st.session_state.base_workforce = get_default_base_workforce()
 
@@ -51,27 +41,15 @@ def initialize_session_state():
 initialize_session_state()
 
 
-# ------------------------------------------------------------
-# App title
-# ------------------------------------------------------------
 st.title("Workforce Planning Projection")
-st.caption(
-    "Next year is shown in one tab and the remaining two years are shown in another tab."
-)
+st.caption("Next year is shown in one tab and the remaining two years are shown in another tab.")
 
 
-# ------------------------------------------------------------
-# Sidebar editable assumptions
-# ------------------------------------------------------------
 st.sidebar.header("Assumptions Panel")
-
-st.sidebar.info(
-    "Edit assumptions below and click Apply Assumptions to refresh the projection."
-)
+st.sidebar.info("Edit assumptions below and click Apply Assumptions to refresh the projection.")
 
 
 st.sidebar.subheader("Base Workforce")
-
 edited_base_workforce = st.sidebar.data_editor(
     st.session_state.base_workforce,
     use_container_width=True,
@@ -81,7 +59,6 @@ edited_base_workforce = st.sidebar.data_editor(
 
 
 st.sidebar.subheader("BAU Growth")
-
 edited_bau_growth = st.sidebar.data_editor(
     st.session_state.bau_growth_assumptions,
     use_container_width=True,
@@ -91,7 +68,6 @@ edited_bau_growth = st.sidebar.data_editor(
 
 
 st.sidebar.subheader("DC Growth")
-
 edited_dc_growth = st.sidebar.data_editor(
     st.session_state.dc_growth_assumptions,
     use_container_width=True,
@@ -101,7 +77,6 @@ edited_dc_growth = st.sidebar.data_editor(
 
 
 st.sidebar.subheader("Attrition")
-
 edited_attrition = st.sidebar.data_editor(
     st.session_state.attrition_assumptions,
     use_container_width=True,
@@ -111,7 +86,6 @@ edited_attrition = st.sidebar.data_editor(
 
 
 st.sidebar.subheader("Workforce Productivity")
-
 edited_productivity = st.sidebar.data_editor(
     st.session_state.productivity_assumptions,
     use_container_width=True,
@@ -137,9 +111,6 @@ if apply_button:
     st.sidebar.success("Assumptions applied successfully.")
 
 
-# ------------------------------------------------------------
-# Projection calculation
-# ------------------------------------------------------------
 try:
     projection_df = calculate_projection(
         st.session_state.base_workforce,
@@ -163,54 +134,27 @@ except Exception as error:
     st.stop()
 
 
-# ------------------------------------------------------------
-# KPI section
-# ------------------------------------------------------------
 total_current_hc = st.session_state.base_workforce["Current HC"].sum()
 next_year_hiring = next_year_df["Gross Hiring Required"].sum()
 remaining_years_hiring = remaining_years_df["Gross Hiring Required"].sum()
 total_three_year_hiring = projection_df["Gross Hiring Required"].sum()
 
-next_year_closing_hc = next_year_df["Closing HC"].sum()
-
-if not remaining_years_df.empty:
-    final_year_closing_hc = (
-        remaining_years_df[remaining_years_df["Year"] == "Year 3"]["Closing HC"].sum()
-    )
-else:
-    final_year_closing_hc = next_year_closing_hc
-
 
 kpi_1, kpi_2, kpi_3, kpi_4 = st.columns(4)
 
 with kpi_1:
-    st.metric(
-        label="Current HC",
-        value=f"{total_current_hc:,.0f}"
-    )
+    st.metric("Current HC", f"{total_current_hc:,.0f}")
 
 with kpi_2:
-    st.metric(
-        label="Next Year Hiring",
-        value=f"{next_year_hiring:,.0f}"
-    )
+    st.metric("Next Year Hiring", f"{next_year_hiring:,.0f}")
 
 with kpi_3:
-    st.metric(
-        label="Remaining 2 Years Hiring",
-        value=f"{remaining_years_hiring:,.0f}"
-    )
+    st.metric("Remaining 2 Years Hiring", f"{remaining_years_hiring:,.0f}")
 
 with kpi_4:
-    st.metric(
-        label="Total 3-Year Hiring",
-        value=f"{total_three_year_hiring:,.0f}"
-    )
+    st.metric("Total 3-Year Hiring", f"{total_three_year_hiring:,.0f}")
 
 
-# ------------------------------------------------------------
-# Main tabs
-# ------------------------------------------------------------
 tab_next_year, tab_remaining_years, tab_full_projection = st.tabs([
     "Next Year",
     "Remaining 2 Years",
@@ -218,14 +162,10 @@ tab_next_year, tab_remaining_years, tab_full_projection = st.tabs([
 ])
 
 
-# ------------------------------------------------------------
-# Tab 1: Next Year
-# ------------------------------------------------------------
 with tab_next_year:
     st.subheader("Next Year Projection")
 
     st.markdown("### Summary")
-
     st.dataframe(
         next_year_summary,
         use_container_width=True,
@@ -233,7 +173,6 @@ with tab_next_year:
     )
 
     st.markdown("### Role-wise Detail")
-
     st.dataframe(
         next_year_df,
         use_container_width=True,
@@ -251,14 +190,10 @@ with tab_next_year:
     st.bar_chart(next_year_chart_df)
 
 
-# ------------------------------------------------------------
-# Tab 2: Remaining 2 Years
-# ------------------------------------------------------------
 with tab_remaining_years:
     st.subheader("Remaining 2 Years Projection")
 
     st.markdown("### Summary")
-
     st.dataframe(
         remaining_years_summary,
         use_container_width=True,
@@ -266,7 +201,6 @@ with tab_remaining_years:
     )
 
     st.markdown("### Role-wise Detail")
-
     st.dataframe(
         remaining_years_df,
         use_container_width=True,
@@ -304,14 +238,10 @@ with tab_remaining_years:
     )
 
 
-# ------------------------------------------------------------
-# Tab 3: Full 3-Year View
-# ------------------------------------------------------------
 with tab_full_projection:
     st.subheader("Full 3-Year Projection")
 
     st.markdown("### Year-wise Summary")
-
     st.dataframe(
         summary_df,
         use_container_width=True,
@@ -319,7 +249,6 @@ with tab_full_projection:
     )
 
     st.markdown("### Complete Role-wise Projection")
-
     st.dataframe(
         projection_df,
         use_container_width=True,
@@ -337,9 +266,6 @@ with tab_full_projection:
     st.bar_chart(hiring_by_year)
 
 
-# ------------------------------------------------------------
-# Download section
-# ------------------------------------------------------------
 st.divider()
 st.subheader("Download Output")
 
@@ -367,9 +293,4 @@ with download_col_2:
     )
 
 
-# ------------------------------------------------------------
-# Footer
-# ------------------------------------------------------------
-st.caption(
-    "Projection uses BAU growth, DC growth, attrition, and workforce productivity assumptions."
-)
+st.caption("Projection uses BAU growth, DC growth, attrition, and workforce productivity assumptions.")
