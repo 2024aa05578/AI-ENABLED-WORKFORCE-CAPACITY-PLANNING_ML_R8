@@ -13,18 +13,11 @@ def calculate_workforce(
     hiring_split_parameters=None,
 ):
     """
-    Creates a rolling 3-year workforce forecast.
-
-    Output is one row per Forecast Year + Region + Product.
-
-    Logic:
-    Opening SE
-    - Attrition
-    + H1 Hiring
-    + H2 Hiring
-    = Closing SE
-
-    Closing SE becomes next year's Opening SE.
+    Rolling three-year workforce forecast with:
+    - constant BAU growth
+    - year-wise variable DC growth
+    - H1 / H2 hiring split
+    - closing SE rolled forward as next year's opening SE
     """
 
     if forecast_years is None:
@@ -53,20 +46,41 @@ def calculate_workforce(
             + row["Startup_WO"] * row["Startup_Hrs"]
         )
 
-        growth = growth_parameters.get(region, {}).get(
+        growth = growth_parameters.get(
+            region,
+            {},
+        ).get(
             product,
-            {"BAU": 0.0, "DC": 0.0},
+            {
+                "BAU": 0.0,
+                "DC": {},
+            },
         )
 
         bau_growth = float(growth.get("BAU", 0.0))
-        dc_growth = float(growth.get("DC", 0.0))
-        total_growth = bau_growth + dc_growth
+        dc_growth_object = growth.get("DC", {})
         attrition = float(attrition_parameters.get(product, 8.0))
 
-        for year_index, forecast_year in enumerate(forecast_years, start=1):
+        previous_bau_hours = current_hours
+        previous_combined_hours = current_hours
+
+        for forecast_year in forecast_years:
+            if isinstance(dc_growth_object, dict):
+                dc_growth = float(
+                    dc_growth_object.get(
+                        int(forecast_year),
+                        dc_growth_object.get(str(forecast_year), 0.0),
+                    )
+                )
+            else:
+                dc_growth = float(dc_growth_object)
+
             split = hiring_split_parameters.get(
                 int(forecast_year),
-                {"H1": 50.0, "H2": 50.0},
+                {
+                    "H1": 50.0,
+                    "H2": 50.0,
+                },
             )
 
             h1_percent = float(split.get("H1", 50.0))
@@ -74,9 +88,16 @@ def calculate_workforce(
 
             available_engineers = opening_engineers * (1 - attrition / 100)
 
-            bau_future_hours = current_hours * ((1 + bau_growth / 100) ** year_index)
-            combined_future_hours = current_hours * ((1 + total_growth / 100) ** year_index)
-            dc_incremental_hours = max(combined_future_hours - bau_future_hours, 0)
+            bau_future_hours = previous_bau_hours * (1 + bau_growth / 100)
+
+            combined_future_hours = previous_combined_hours * (
+                1 + (bau_growth + dc_growth) / 100
+            )
+
+            dc_incremental_hours = max(
+                combined_future_hours - bau_future_hours,
+                0,
+            )
 
             current_required_engineers = current_hours / effective_capacity
             bau_required_engineers = bau_future_hours / effective_capacity
@@ -101,7 +122,7 @@ def calculate_workforce(
                     "Available Engineers": round(available_engineers, 1),
                     "BAU Growth %": bau_growth,
                     "DC Growth %": dc_growth,
-                    "Total Growth %": total_growth,
+                    "Total Growth %": bau_growth + dc_growth,
                     "Productive Hrs/Day": productive_hours,
                     "Working Days/Month": working_days,
                     "Utilization %": target_utilization,
@@ -126,5 +147,7 @@ def calculate_workforce(
             )
 
             opening_engineers = closing_engineers
+            previous_bau_hours = bau_future_hours
+            previous_combined_hours = combined_future_hours
 
     return pd.DataFrame(results)
