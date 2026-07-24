@@ -8,109 +8,28 @@ import streamlit as st
 
 from workforce_model import calculate_workforce
 
-
-st.set_page_config(
-    page_title="AI Enabled Workforce & Capacity Planning",
-    page_icon="🚀",
-    layout="wide",
-)
-
+st.set_page_config(page_title="AI Enabled Workforce & Capacity Planning", page_icon="rocket", layout="wide")
 
 UP_ARROW = chr(8593)
 BAU_UP_LABEL = "BAU " + UP_ARROW + "%"
 DC_UP_LABEL = "DC " + UP_ARROW + "%"
 FORECAST_YEARS = [2027, 2028, 2029]
 
-
-# =====================================================
-# COMPACT FIXED SIDEBAR WITH COLORS
-# =====================================================
-
-st.markdown(
-    """
-    <style>
-    section[data-testid="stSidebar"] {
-        width: 380px !important;
-        min-width: 380px !important;
-        max-width: 380px !important;
-        background: linear-gradient(180deg,#F8FAFC 0%,#EEF4FA 100%);
-    }
-
-    section[data-testid="stSidebar"] > div {
-        width: 380px !important;
-        min-width: 380px !important;
-        max-width: 380px !important;
-        padding-left: 6px !important;
-        padding-right: 6px !important;
-    }
-
-    div[data-testid="stSidebarContent"] {
-        width: 380px !important;
-        max-width: 380px !important;
-    }
-
-    section[data-testid="stSidebar"] h1,
-    section[data-testid="stSidebar"] h2,
-    section[data-testid="stSidebar"] h3 {
-        font-size: 12px !important;
-        margin-top: 5px !important;
-        margin-bottom: 3px !important;
-        color: #1F4E79 !important;
-    }
-
-    section[data-testid="stSidebar"] p,
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] div {
-        font-size: 9px !important;
-        line-height: 1.1 !important;
-    }
-
-    section[data-testid="stSidebar"] button {
-        font-size: 10px !important;
-        padding-top: 3px !important;
-        padding-bottom: 3px !important;
-        background-color: #1F4E79 !important;
-        color: white !important;
-        border-radius: 6px !important;
-    }
-
-    .region-header {
-        padding: 5px 8px;
-        border-radius: 7px;
-        margin-top: 6px;
-        margin-bottom: 4px;
-        font-weight: 700;
-        font-size: 11px;
-    }
-
-    .sidebar-note {
-        font-size: 9px;
-        color: #475569;
-        padding: 5px 7px;
-        border-radius: 6px;
-        background: #EAF2F8;
-        border-left: 3px solid #1F4E79;
-        margin-bottom: 6px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# =====================================================
-# MASTER DATA
-# =====================================================
+st.markdown("""
+<style>
+section[data-testid="stSidebar"] {width: 380px !important; min-width: 380px !important; max-width: 380px !important; background: linear-gradient(180deg,#F8FAFC 0%,#EEF4FA 100%);} 
+section[data-testid="stSidebar"] > div {width: 380px !important; min-width: 380px !important; max-width: 380px !important; padding-left: 6px !important; padding-right: 6px !important;}
+div[data-testid="stSidebarContent"] {width: 380px !important; max-width: 380px !important;}
+section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {font-size: 12px !important; margin-top: 5px !important; margin-bottom: 3px !important; color: #1F4E79 !important;}
+section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label, section[data-testid="stSidebar"] div {font-size: 9px !important; line-height: 1.1 !important;}
+section[data-testid="stSidebar"] button {font-size: 10px !important; padding-top: 3px !important; padding-bottom: 3px !important; background-color: #1F4E79 !important; color: white !important; border-radius: 6px !important;}
+.region-header {padding: 5px 8px; border-radius: 7px; margin-top: 6px; margin-bottom: 4px; font-weight: 700; font-size: 11px;}
+.sidebar-note {font-size: 9px; color: #475569; padding: 5px 7px; border-radius: 6px; background: #EAF2F8; border-left: 3px solid #1F4E79; margin-bottom: 6px;}
+</style>
+""", unsafe_allow_html=True)
 
 REGIONS = ["North", "West", "South", "East"]
-
-PRODUCTS = [
-    "UPS",
-    "Cooling",
-    "Power Products",
-    "Power System",
-    "Industrial Automation",
-]
+PRODUCTS = ["UPS", "Cooling", "Power Products", "Power System", "Industrial Automation"]
 
 PRODUCT_ALIASES = {
     "Power Product": "Power Products",
@@ -131,7 +50,8 @@ PRODUCT_DISPLAY = {
 }
 
 PRODUCT_REVERSE_DISPLAY = {
-    value: key for key, value in PRODUCT_DISPLAY.items()
+    value: key
+    for key, value in PRODUCT_DISPLAY.items()
 }
 
 REGION_STYLES = {
@@ -157,10 +77,6 @@ REGION_STYLES = {
     },
 }
 
-
-# =====================================================
-# DEFAULT PARAMETERS
-# =====================================================
 
 def make_growth(bau, dc_2027, dc_2028, dc_2029):
     return {
@@ -213,17 +129,22 @@ DEFAULT_ATTRITION = {
 }
 
 DEFAULT_HIRING_SPLIT = {
-    2027: {"H1": 60.0, "H2": 40.0},
-    2028: {"H1": 50.0, "H2": 50.0},
-    2029: {"H1": 50.0, "H2": 50.0},
+    2027: {
+        "H1": 60.0,
+        "H2": 40.0,
+    },
+    2028: {
+        "H1": 50.0,
+        "H2": 50.0,
+    },
+    2029: {
+        "H1": 50.0,
+        "H2": 50.0,
+    },
 }
 
 APP_SCHEMA_VERSION = "v21_variable_dc_yearwise"
 
-
-# =====================================================
-# SESSION STATE
-# =====================================================
 
 def init_state():
     if st.session_state.get("schema_version") != APP_SCHEMA_VERSION:
@@ -274,9 +195,24 @@ def growth_region_to_df(growth_parameters, region):
             {
                 "Product": PRODUCT_DISPLAY[product],
                 "BAU": float(params.get("BAU", 0.0)),
-                "DC 2027": float(dc_values.get(2027, dc_values.get("2027", 0.0))),
-                "DC 2028": float(dc_values.get(2028, dc_values.get("2028", 0.0))),
-                "DC 2029": float(dc_values.get(2029, dc_values.get("2029", 0.0))),
+                "DC 2027": float(
+                    dc_values.get(
+                        2027,
+                        dc_values.get("2027", 0.0),
+                    )
+                ),
+                "DC 2028": float(
+                    dc_values.get(
+                        2028,
+                        dc_values.get("2028", 0.0),
+                    )
+                ),
+                "DC 2029": float(
+                    dc_values.get(
+                        2029,
+                        dc_values.get("2029", 0.0),
+                    )
+                ),
             }
         )
 
@@ -288,7 +224,9 @@ def growth_region_dfs_to_dict(edited_growth_dfs):
 
     for region, growth_df in edited_growth_dfs.items():
         for _, row in growth_df.iterrows():
-            product = PRODUCT_REVERSE_DISPLAY.get(str(row["Product"]).strip())
+            product = PRODUCT_REVERSE_DISPLAY.get(
+                str(row["Product"]).strip()
+            )
 
             if product in PRODUCTS:
                 output[region][product] = {
@@ -304,24 +242,24 @@ def growth_region_dfs_to_dict(edited_growth_dfs):
 
 
 def attrition_dict_to_df(attrition_parameters):
-    rows = []
-
-    for product in PRODUCTS:
-        rows.append(
+    return pd.DataFrame(
+        [
             {
                 "Product": PRODUCT_DISPLAY[product],
                 "Attr %": float(attrition_parameters.get(product, 8.0)),
             }
-        )
-
-    return pd.DataFrame(rows)
+            for product in PRODUCTS
+        ]
+    )
 
 
 def attrition_df_to_dict(attrition_df):
     output = copy.deepcopy(DEFAULT_ATTRITION)
 
     for _, row in attrition_df.iterrows():
-        product = PRODUCT_REVERSE_DISPLAY.get(str(row["Product"]).strip())
+        product = PRODUCT_REVERSE_DISPLAY.get(
+            str(row["Product"]).strip()
+        )
 
         if product in PRODUCTS:
             output[product] = float(row["Attr %"])
@@ -352,18 +290,16 @@ def productivity_df_to_values(productivity_df):
 
 
 def hiring_split_to_df(split_parameters):
-    rows = []
-
-    for year in FORECAST_YEARS:
-        rows.append(
+    return pd.DataFrame(
+        [
             {
                 "Forecast Year": year,
                 "H1 %": float(split_parameters[year]["H1"]),
                 "H2 %": float(split_parameters[year]["H2"]),
             }
-        )
-
-    return pd.DataFrame(rows)
+            for year in FORECAST_YEARS
+        ]
+    )
 
 
 def hiring_split_df_to_dict(split_df):
@@ -417,19 +353,19 @@ def safe_read_csv(uploaded_file):
 
     df.columns = df.columns.str.strip()
 
-    unnamed_columns = [
+    unnamed = [
         column for column in df.columns
         if str(column).startswith("Unnamed")
     ]
 
-    if unnamed_columns:
-        df = df.drop(columns=unnamed_columns)
+    if unnamed:
+        df = df.drop(columns=unnamed)
 
     return df
 
 
 def validate_input_data(df):
-    required_columns = [
+    required = [
         "Region",
         "Product",
         "Current_SE",
@@ -441,32 +377,42 @@ def validate_input_data(df):
         "Startup_Hrs",
     ]
 
-    missing_columns = [
-        column for column in required_columns
+    missing = [
+        column for column in required
         if column not in df.columns
     ]
 
-    if missing_columns:
-        st.error(f"Missing required columns: {missing_columns}")
+    if missing:
+        st.error(f"Missing required columns: {missing}")
         st.stop()
 
     df = df.copy()
 
     df["Region"] = df["Region"].astype(str).str.strip()
-    df["Product"] = df["Product"].astype(str).str.strip().replace(PRODUCT_ALIASES)
+    df["Product"] = (
+        df["Product"]
+        .astype(str)
+        .str.strip()
+        .replace(PRODUCT_ALIASES)
+    )
 
-    invalid_regions = sorted(set(df["Region"].unique()) - set(REGIONS))
-    invalid_products = sorted(set(df["Product"].unique()) - set(PRODUCTS))
+    bad_regions = sorted(
+        set(df["Region"].unique()) - set(REGIONS)
+    )
 
-    if invalid_regions:
-        st.error(f"Invalid regions found: {invalid_regions}")
+    bad_products = sorted(
+        set(df["Product"].unique()) - set(PRODUCTS)
+    )
+
+    if bad_regions:
+        st.error(f"Invalid regions found: {bad_regions}")
         st.stop()
 
-    if invalid_products:
-        st.error(f"Invalid products found: {invalid_products}")
+    if bad_products:
+        st.error(f"Invalid products found: {bad_products}")
         st.stop()
 
-    numeric_columns = [
+    numeric = [
         "Current_SE",
         "Breakdown_WO",
         "Breakdown_Hrs",
@@ -477,12 +423,15 @@ def validate_input_data(df):
     ]
 
     if "Year" in df.columns:
-        numeric_columns.append("Year")
+        numeric.append("Year")
 
-    for column in numeric_columns:
-        df[column] = pd.to_numeric(df[column], errors="coerce")
+    for column in numeric:
+        df[column] = pd.to_numeric(
+            df[column],
+            errors="coerce",
+        )
 
-    if df[numeric_columns].isnull().any().any():
+    if df[numeric].isnull().any().any():
         st.error("Some numeric columns contain blank or invalid numeric values.")
         st.stop()
 
@@ -490,6 +439,9 @@ def validate_input_data(df):
 
 
 def show_bar_chart_with_values(data, x_col, y_col, title, color_col=None):
+    data = data.copy()
+    data[y_col] = data[y_col].round(0)
+
     if color_col is None:
         color_col = x_col
 
@@ -515,7 +467,7 @@ def show_bar_chart_with_values(data, x_col, y_col, title, color_col=None):
     )
 
     fig.update_traces(
-        texttemplate="%{text:.1f}",
+        texttemplate="%{text:.0f}",
         textposition="outside",
         cliponaxis=False,
     )
@@ -524,7 +476,12 @@ def show_bar_chart_with_values(data, x_col, y_col, title, color_col=None):
         height=430,
         title_x=0.05,
         showlegend=False,
-        margin=dict(l=40, r=30, t=70, b=90),
+        margin=dict(
+            l=40,
+            r=30,
+            t=70,
+            b=90,
+        ),
         xaxis_title="",
         yaxis_title="Engineers",
         plot_bgcolor="white",
@@ -553,6 +510,19 @@ def show_bar_chart_with_values(data, x_col, y_col, title, color_col=None):
     )
 
 
+def make_display_df(dataframe):
+    display_df = dataframe.copy()
+
+    numeric_columns = display_df.select_dtypes(
+        include=["number"]
+    ).columns
+
+    for column in numeric_columns:
+        display_df[column] = display_df[column].round(0).astype("Int64")
+
+    return display_df
+
+
 def apply_feedback_correction(result, feedback_df):
     adjusted = result.copy()
     adjusted["ML Correction Factor"] = 1.0
@@ -563,7 +533,7 @@ def apply_feedback_correction(result, feedback_df):
 
     feedback_df = feedback_df.copy()
 
-    required_columns = [
+    required = [
         "Forecast Year",
         "Region",
         "Product",
@@ -571,7 +541,7 @@ def apply_feedback_correction(result, feedback_df):
         "Manual Forecast SE",
     ]
 
-    if any(column not in feedback_df.columns for column in required_columns):
+    if any(column not in feedback_df.columns for column in required):
         return adjusted, pd.DataFrame()
 
     for column in [
@@ -607,7 +577,8 @@ def apply_feedback_correction(result, feedback_df):
     )
 
     factors = (
-        feedback_df.groupby(["Region", "Product"])["Correction Factor"]
+        feedback_df
+        .groupby(["Region", "Product"])["Correction Factor"]
         .mean()
         .reset_index()
     )
@@ -619,7 +590,6 @@ def apply_feedback_correction(result, feedback_df):
     )
 
     adjusted["Correction Factor"] = adjusted["Correction Factor"].fillna(1.0)
-
     adjusted["ML Correction Factor"] = adjusted["Correction Factor"].round(3)
 
     adjusted["ML Adjusted Required SE"] = (
@@ -644,7 +614,7 @@ def build_feedback_template(result):
         ]
         .rename(
             columns={
-                "Combined Required Engineers": "System Forecast SE"
+                "Combined Required Engineers": "System Forecast SE",
             }
         )
         .assign(
@@ -656,16 +626,7 @@ def build_feedback_template(result):
     )
 
 
-# =====================================================
-# INITIALIZE STATE
-# =====================================================
-
 init_state()
-
-
-# =====================================================
-# SIDEBAR
-# =====================================================
 
 st.sidebar.header("Planning Assumptions")
 
@@ -736,7 +697,7 @@ with st.sidebar.form("planning_assumptions_form"):
 
     edited_attrition_df = st.data_editor(
         attrition_dict_to_df(
-            st.session_state.attrition_parameters
+            st.session_state.attrition_parameters,
         ),
         hide_index=True,
         use_container_width=True,
@@ -795,7 +756,7 @@ with st.sidebar.form("planning_assumptions_form"):
 
     edited_hiring_split_df = st.data_editor(
         hiring_split_to_df(
-            st.session_state.hiring_split_parameters
+            st.session_state.hiring_split_parameters,
         ),
         hide_index=True,
         use_container_width=True,
@@ -829,15 +790,15 @@ with st.sidebar.form("planning_assumptions_form"):
 
 if apply_assumptions:
     st.session_state.growth_parameters = growth_region_dfs_to_dict(
-        edited_growth_dfs
+        edited_growth_dfs,
     )
 
     st.session_state.attrition_parameters = attrition_df_to_dict(
-        edited_attrition_df
+        edited_attrition_df,
     )
 
     st.session_state.hiring_split_parameters = hiring_split_df_to_dict(
-        edited_hiring_split_df
+        edited_hiring_split_df,
     )
 
     (
@@ -845,16 +806,12 @@ if apply_assumptions:
         st.session_state.working_days,
         st.session_state.target_utilization,
     ) = productivity_df_to_values(
-        edited_productivity_df
+        edited_productivity_df,
     )
 
     st.session_state.needs_recalc = True
     st.sidebar.success("Assumptions applied. Dashboard will refresh.")
 
-
-# =====================================================
-# MAIN PAGE
-# =====================================================
 
 st.title("AI Enabled Workforce & Capacity Planning")
 
@@ -885,11 +842,6 @@ if st.session_state.input_df is None:
 
 
 original_df = st.session_state.input_df
-
-
-# =====================================================
-# DASHBOARD FILTERS
-# =====================================================
 
 st.markdown("### Dashboard Filters")
 
@@ -964,10 +916,6 @@ if st.session_state.last_filter_signature != filter_signature:
     st.session_state.last_filter_signature = filter_signature
 
 
-# =====================================================
-# CALCULATE WORKFORCE
-# =====================================================
-
 if st.session_state.needs_recalc or st.session_state.result_df is None:
     result = calculate_workforce(
         df=df,
@@ -987,36 +935,49 @@ else:
     result = st.session_state.result_df
 
 
-# =====================================================
-# DASHBOARD SUMMARY
-# =====================================================
-
 st.subheader("Dashboard Summary")
 
-total_current = df["Current_SE"].sum()
+total_current = int(round(df["Current_SE"].sum(), 0))
 final_year = max(FORECAST_YEARS)
 
-final_required = round(
-    result[result["Forecast Year"] == final_year]["Combined Required Engineers"].sum(),
-    1,
+final_required = int(
+    round(
+        result[
+            result["Forecast Year"] == final_year
+        ]["Combined Required Engineers"].sum(),
+        0,
+    )
 )
 
-total_hiring = int(result["Combined Additional Required"].sum())
-total_h1 = int(result["H1 Hiring"].sum())
-total_h2 = int(result["H2 Hiring"].sum())
+total_hiring = int(
+    round(
+        result["Combined Additional Required"].sum(),
+        0,
+    )
+)
+
+total_h1 = int(
+    round(
+        result["H1 Hiring"].sum(),
+        0,
+    )
+)
+
+total_h2 = int(
+    round(
+        result["H2 Hiring"].sum(),
+        0,
+    )
+)
 
 summary_cols = st.columns(5)
 
-summary_cols[0].metric("Baseline SE", round(total_current, 1))
+summary_cols[0].metric("Baseline SE", total_current)
 summary_cols[1].metric(f"{final_year} Required SE", final_required)
 summary_cols[2].metric("3-Year Hiring", total_hiring)
 summary_cols[3].metric("H1 Hiring Total", total_h1)
 summary_cols[4].metric("H2 Hiring Total", total_h2)
 
-
-# =====================================================
-# VISUAL DASHBOARD
-# =====================================================
 
 st.markdown("---")
 st.subheader("Visual Dashboard")
@@ -1101,8 +1062,14 @@ with c2:
         paper_bgcolor="white",
     )
 
-    fig.update_xaxes(fixedrange=True)
-    fig.update_yaxes(fixedrange=True, rangemode="tozero")
+    fig.update_xaxes(
+        fixedrange=True,
+    )
+
+    fig.update_yaxes(
+        fixedrange=True,
+        rangemode="tozero",
+    )
 
     st.plotly_chart(
         fig,
@@ -1167,9 +1134,10 @@ with c4:
     )
 
 
-# =====================================================
-# TABS
-# =====================================================
+feedback_file = None
+ml_adjusted_result = result.copy()
+ml_factors = pd.DataFrame()
+
 
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
     [
@@ -1207,17 +1175,17 @@ with tab0:
 
     exec_cols = st.columns(4)
 
-    exec_cols[0].metric("Baseline SE", round(total_current, 1))
+    exec_cols[0].metric("Baseline SE", total_current)
     exec_cols[1].metric(f"{final_year} Required SE", final_required)
     exec_cols[2].metric("3-Year Hiring", total_hiring)
     exec_cols[3].metric("H1 / H2 Hiring", f"{total_h1} / {total_h2}")
 
     st.markdown(
-        """
-        The system now provides a rolling 3-year forecast, splits annual hiring
-        into H1 and H2, and captures manual forecast feedback for ML-based correction.
-        """
+        "The system now provides a rolling 3-year forecast, splits annual hiring "
+        "into H1 and H2, and captures manual forecast feedback for ML-based correction."
     )
+
+    st.markdown("### Year-wise Summary")
 
     year_summary = (
         result.groupby("Forecast Year")
@@ -1231,10 +1199,8 @@ with tab0:
         .reset_index()
     )
 
-    st.markdown("### Year-wise Summary")
-
     st.dataframe(
-        year_summary.round(1),
+        make_display_df(year_summary),
         use_container_width=True,
     )
 
@@ -1243,7 +1209,7 @@ with tab1:
     st.subheader("3-Year Forecast")
 
     st.dataframe(
-        result,
+        make_display_df(result),
         use_container_width=True,
     )
 
@@ -1264,7 +1230,7 @@ with tab2:
     )
 
     st.dataframe(
-        hiring_plan,
+        make_display_df(hiring_plan),
         use_container_width=True,
     )
 
@@ -1300,23 +1266,23 @@ with tab3:
             feedback_df,
         )
 
-        st.markdown("### Learned Correction Factors")
+        st.markdown("### Learned correction factors")
 
         st.dataframe(
-            ml_factors,
+            make_display_df(ml_factors),
             use_container_width=True,
         )
 
         st.markdown("### ML Adjusted Forecast")
 
         st.dataframe(
-            ml_adjusted_result,
+            make_display_df(ml_adjusted_result),
             use_container_width=True,
         )
 
     else:
         st.dataframe(
-            template,
+            make_display_df(template),
             use_container_width=True,
         )
 
@@ -1325,7 +1291,7 @@ with tab4:
     st.subheader("Uploaded Input Data")
 
     st.dataframe(
-        df,
+        make_display_df(df),
         use_container_width=True,
     )
 
@@ -1334,7 +1300,7 @@ with tab5:
     st.subheader("Full Results")
 
     st.dataframe(
-        result,
+        make_display_df(result),
         use_container_width=True,
     )
 
@@ -1351,7 +1317,7 @@ with tab6:
     )
 
     st.dataframe(
-        dc_table.round(1),
+        make_display_df(dc_table),
         use_container_width=True,
     )
 
@@ -1366,7 +1332,7 @@ with tab6:
     )
 
     st.dataframe(
-        hiring_table.round(1),
+        make_display_df(hiring_table),
         use_container_width=True,
     )
 
@@ -1376,7 +1342,7 @@ with tab7:
 
     st.download_button(
         "Download 3-Year Forecast Output",
-        data=result.to_csv(index=False).encode("utf-8"),
+        data=make_display_df(result).to_csv(index=False).encode("utf-8"),
         file_name="three_year_workforce_forecast.csv",
         mime="text/csv",
     )
@@ -1394,7 +1360,7 @@ with tab7:
 
     st.download_button(
         "Download Hiring Plan",
-        data=hiring_download.to_csv(index=False).encode("utf-8"),
+        data=make_display_df(hiring_download).to_csv(index=False).encode("utf-8"),
         file_name="h1_h2_hiring_plan.csv",
         mime="text/csv",
     )
