@@ -1,17 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-
-from workforce_model import (
-    get_default_base_workforce,
-    get_default_bau_growth_assumptions,
-    get_default_dc_growth_assumptions,
-    get_default_attrition_assumptions,
-    get_default_productivity_assumptions,
-    calculate_projection,
-    create_summary,
-    split_projection_tabs
-)
+import workforce_model as wm
 
 
 st.set_page_config(
@@ -23,19 +13,19 @@ st.set_page_config(
 
 def initialize_session_state():
     if "base_workforce" not in st.session_state:
-        st.session_state.base_workforce = get_default_base_workforce()
+        st.session_state.base_workforce = wm.get_default_base_workforce()
 
     if "bau_growth_assumptions" not in st.session_state:
-        st.session_state.bau_growth_assumptions = get_default_bau_growth_assumptions()
+        st.session_state.bau_growth_assumptions = wm.get_default_bau_growth_assumptions()
 
     if "dc_growth_assumptions" not in st.session_state:
-        st.session_state.dc_growth_assumptions = get_default_dc_growth_assumptions()
+        st.session_state.dc_growth_assumptions = wm.get_default_dc_growth_assumptions()
 
     if "attrition_assumptions" not in st.session_state:
-        st.session_state.attrition_assumptions = get_default_attrition_assumptions()
+        st.session_state.attrition_assumptions = wm.get_default_attrition_assumptions()
 
     if "productivity_assumptions" not in st.session_state:
-        st.session_state.productivity_assumptions = get_default_productivity_assumptions()
+        st.session_state.productivity_assumptions = wm.get_default_productivity_assumptions()
 
 
 initialize_session_state()
@@ -50,6 +40,7 @@ st.sidebar.info("Edit assumptions below and click Apply Assumptions to refresh t
 
 
 st.sidebar.subheader("Base Workforce")
+
 edited_base_workforce = st.sidebar.data_editor(
     st.session_state.base_workforce,
     use_container_width=True,
@@ -59,6 +50,7 @@ edited_base_workforce = st.sidebar.data_editor(
 
 
 st.sidebar.subheader("BAU Growth")
+
 edited_bau_growth = st.sidebar.data_editor(
     st.session_state.bau_growth_assumptions,
     use_container_width=True,
@@ -68,6 +60,7 @@ edited_bau_growth = st.sidebar.data_editor(
 
 
 st.sidebar.subheader("DC Growth")
+
 edited_dc_growth = st.sidebar.data_editor(
     st.session_state.dc_growth_assumptions,
     use_container_width=True,
@@ -77,6 +70,7 @@ edited_dc_growth = st.sidebar.data_editor(
 
 
 st.sidebar.subheader("Attrition")
+
 edited_attrition = st.sidebar.data_editor(
     st.session_state.attrition_assumptions,
     use_container_width=True,
@@ -86,6 +80,7 @@ edited_attrition = st.sidebar.data_editor(
 
 
 st.sidebar.subheader("Workforce Productivity")
+
 edited_productivity = st.sidebar.data_editor(
     st.session_state.productivity_assumptions,
     use_container_width=True,
@@ -112,7 +107,7 @@ if apply_button:
 
 
 try:
-    projection_df = calculate_projection(
+    projection_df = wm.calculate_projection(
         st.session_state.base_workforce,
         st.session_state.bau_growth_assumptions,
         st.session_state.dc_growth_assumptions,
@@ -120,14 +115,14 @@ try:
         st.session_state.productivity_assumptions
     )
 
-    summary_df = create_summary(projection_df)
+    summary_df = wm.create_summary(projection_df)
 
     (
         next_year_df,
         remaining_years_df,
         next_year_summary,
         remaining_years_summary
-    ) = split_projection_tabs(projection_df, summary_df)
+    ) = wm.split_projection_tabs(projection_df, summary_df)
 
 except Exception as error:
     st.error(f"Projection calculation failed: {error}")
@@ -143,29 +138,44 @@ total_three_year_hiring = projection_df["Gross Hiring Required"].sum()
 kpi_1, kpi_2, kpi_3, kpi_4 = st.columns(4)
 
 with kpi_1:
-    st.metric("Current HC", f"{total_current_hc:,.0f}")
+    st.metric(
+        label="Current HC",
+        value=f"{total_current_hc:,.0f}"
+    )
 
 with kpi_2:
-    st.metric("Next Year Hiring", f"{next_year_hiring:,.0f}")
+    st.metric(
+        label="Next Year Hiring",
+        value=f"{next_year_hiring:,.0f}"
+    )
 
 with kpi_3:
-    st.metric("Remaining 2 Years Hiring", f"{remaining_years_hiring:,.0f}")
+    st.metric(
+        label="Remaining 2 Years Hiring",
+        value=f"{remaining_years_hiring:,.0f}"
+    )
 
 with kpi_4:
-    st.metric("Total 3-Year Hiring", f"{total_three_year_hiring:,.0f}")
+    st.metric(
+        label="Total 3-Year Hiring",
+        value=f"{total_three_year_hiring:,.0f}"
+    )
 
 
-tab_next_year, tab_remaining_years, tab_full_projection = st.tabs([
-    "Next Year",
-    "Remaining 2 Years",
-    "Full 3-Year View"
-])
+tab_next_year, tab_remaining_years, tab_full_projection = st.tabs(
+    [
+        "Next Year",
+        "Remaining 2 Years",
+        "Full 3-Year View"
+    ]
+)
 
 
 with tab_next_year:
     st.subheader("Next Year Projection")
 
     st.markdown("### Summary")
+
     st.dataframe(
         next_year_summary,
         use_container_width=True,
@@ -173,6 +183,7 @@ with tab_next_year:
     )
 
     st.markdown("### Role-wise Detail")
+
     st.dataframe(
         next_year_df,
         use_container_width=True,
@@ -182,7 +193,10 @@ with tab_next_year:
     st.markdown("### Next Year Hiring by Role")
 
     next_year_chart_df = next_year_df[
-        ["Role", "Gross Hiring Required"]
+        [
+            "Role",
+            "Gross Hiring Required"
+        ]
     ].copy()
 
     next_year_chart_df = next_year_chart_df.set_index("Role")
@@ -194,6 +208,7 @@ with tab_remaining_years:
     st.subheader("Remaining 2 Years Projection")
 
     st.markdown("### Summary")
+
     st.dataframe(
         remaining_years_summary,
         use_container_width=True,
@@ -201,6 +216,7 @@ with tab_remaining_years:
     )
 
     st.markdown("### Role-wise Detail")
+
     st.dataframe(
         remaining_years_df,
         use_container_width=True,
@@ -242,6 +258,7 @@ with tab_full_projection:
     st.subheader("Full 3-Year Projection")
 
     st.markdown("### Year-wise Summary")
+
     st.dataframe(
         summary_df,
         use_container_width=True,
@@ -249,6 +266,7 @@ with tab_full_projection:
     )
 
     st.markdown("### Complete Role-wise Projection")
+
     st.dataframe(
         projection_df,
         use_container_width=True,
