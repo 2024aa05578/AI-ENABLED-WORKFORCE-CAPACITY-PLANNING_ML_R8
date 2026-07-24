@@ -1,153 +1,267 @@
-import math
 import pandas as pd
+import numpy as np
 
 
-def calculate_workforce(
-    df,
-    growth_parameters,
-    attrition_parameters,
-    productive_hours,
-    working_days,
-    target_utilization,
-    forecast_years=None,
-    hiring_split_parameters=None,
+def get_default_base_workforce():
+    """
+    Default base workforce table.
+    You can replace this with your actual workforce structure.
+    """
+
+    return pd.DataFrame({
+        "Role": [
+            "Project Manager",
+            "Service Delivery Manager",
+            "Technical Lead",
+            "Engineer",
+            "Support Executive"
+        ],
+        "Current HC": [12, 18, 35, 120, 60],
+        "Current Productivity": [1.00, 1.00, 1.00, 1.00, 1.00]
+    })
+
+
+def get_default_bau_growth_assumptions():
+    """
+    Default BAU growth assumptions for 3 years.
+    """
+
+    return pd.DataFrame({
+        "Year": ["Year 1", "Year 2", "Year 3"],
+        "BAU Growth %": [8.0, 7.0, 6.0]
+    })
+
+
+def get_default_dc_growth_assumptions():
+    """
+    Default DC growth assumptions for 3 years.
+    """
+
+    return pd.DataFrame({
+        "Year": ["Year 1", "Year 2", "Year 3"],
+        "DC Growth %": [5.0, 5.0, 4.0]
+    })
+
+
+def get_default_attrition_assumptions():
+    """
+    Default attrition assumptions for 3 years.
+    """
+
+    return pd.DataFrame({
+        "Year": ["Year 1", "Year 2", "Year 3"],
+        "Attrition %": [10.0, 9.0, 8.0]
+    })
+
+
+def get_default_productivity_assumptions():
+    """
+    Default productivity improvement assumptions for 3 years.
+    """
+
+    return pd.DataFrame({
+        "Year": ["Year 1", "Year 2", "Year 3"],
+        "Productivity Improvement %": [3.0, 4.0, 5.0]
+    })
+
+
+def validate_assumptions(
+    base_df,
+    bau_df,
+    dc_df,
+    attrition_df,
+    productivity_df
 ):
     """
-    Rolling three-year workforce forecast with:
-    - constant BAU growth
-    - year-wise variable DC growth
-    - H1 / H2 hiring split
-    - closing SE rolled forward as next year's opening SE
+    Basic validation for input tables.
     """
 
-    if forecast_years is None:
-        forecast_years = [2027, 2028, 2029]
+    required_years = ["Year 1", "Year 2", "Year 3"]
 
-    if hiring_split_parameters is None:
-        hiring_split_parameters = {
-            int(year): {"H1": 50.0, "H2": 50.0}
-            for year in forecast_years
-        }
+    if base_df.empty:
+        raise ValueError("Base workforce table cannot be empty.")
 
-    annual_capacity = productive_hours * working_days * 12
-    effective_capacity = annual_capacity * target_utilization / 100
+    if "Role" not in base_df.columns:
+        raise ValueError("Base workforce must contain Role column.")
 
-    results = []
+    if "Current HC" not in base_df.columns:
+        raise ValueError("Base workforce must contain Current HC column.")
 
-    for _, row in df.iterrows():
-        region = row["Region"]
-        product = row["Product"]
+    if "Current Productivity" not in base_df.columns:
+        raise ValueError("Base workforce must contain Current Productivity column.")
 
-        opening_engineers = float(row["Current_SE"])
+    for df, name in [
+        (bau_df, "BAU Growth"),
+        (dc_df, "DC Growth"),
+        (attrition_df, "Attrition"),
+        (productivity_df, "Productivity")
+    ]:
+        if "Year" not in df.columns:
+            raise ValueError(f"{name} table must contain Year column.")
 
-        current_hours = (
-            row["Breakdown_WO"] * row["Breakdown_Hrs"]
-            + row["PM_WO"] * row["PM_Hrs"]
-            + row["Startup_WO"] * row["Startup_Hrs"]
-        )
+        available_years = df["Year"].tolist()
 
-        growth = growth_parameters.get(
-            region,
-            {},
-        ).get(
-            product,
-            {
-                "BAU": 0.0,
-                "DC": {},
-            },
-        )
+        for year in required_years:
+            if year not in available_years:
+                raise ValueError(f"{name} table must contain {year}.")
 
-        bau_growth = float(growth.get("BAU", 0.0))
-        dc_growth_object = growth.get("DC", {})
-        attrition = float(attrition_parameters.get(product, 8.0))
 
-        previous_bau_hours = current_hours
-        previous_combined_hours = current_hours
+def calculate_projection(
+    base_df,
+    bau_df,
+    dc_df,
+    attrition_df,
+    productivity_df
+):
+    """
+    Calculate 3-year workforce projection.
 
-        for forecast_year in forecast_years:
-            if isinstance(dc_growth_object, dict):
-                dc_growth = float(
-                    dc_growth_object.get(
-                        int(forecast_year),
-                        dc_growth_object.get(str(forecast_year), 0.0),
-                    )
-                )
+    Business logic:
+    1. Opening HC starts from current HC.
+    2. Demand growth = BAU Growth + DC Growth.
+    3. Demand HC before productivity = Opening HC * growth.
+    4. Productivity improvement reduces required HC.
+    5. Attrition backfill is calculated separately.
+    6. Gross hiring required = Required HC + Attrition Backfill - Opening HC.
+    7. Closing HC becomes opening HC for next year.
+    """
+
+    validate_assumptions(
+        base_df,
+        bau_df,
+        dc_df,
+        attrition_df,
+        productivity_df
+    )
+
+    projection_rows = []
+
+    current_hc_by_role = base_df.set_index("Role")["Current HC"].to_dict()
+    current_productivity_by_role = base_df.set_index("Role")["Current Productivity"].to_dict()
+
+    years = ["Year 1", "Year 2", "Year 3"]
+
+    for year in years:
+        bau_growth = float(
+            bau_df.loc[bau_df["Year"] == year, "BAU Growth %"].iloc[0]
+        ) / 100
+
+        dc_growth = float(
+            dc_df.loc[dc_df["Year"] == year, "DC Growth %"].iloc[0]
+        ) / 100
+
+        attrition = float(
+            attrition_df.loc[attrition_df["Year"] == year, "Attrition %"].iloc[0]
+        ) / 100
+
+        productivity_improvement = float(
+            productivity_df.loc[
+                productivity_df["Year"] == year,
+                "Productivity Improvement %"
+            ].iloc[0]
+        ) / 100
+
+        for role in base_df["Role"]:
+            opening_hc = float(current_hc_by_role[role])
+            current_productivity = float(current_productivity_by_role[role])
+
+            total_growth = bau_growth + dc_growth
+
+            demand_hc_before_productivity = opening_hc * (1 + total_growth)
+
+            improved_productivity = current_productivity * (1 + productivity_improvement)
+
+            if improved_productivity == 0:
+                required_hc_after_productivity = demand_hc_before_productivity
             else:
-                dc_growth = float(dc_growth_object)
+                required_hc_after_productivity = (
+                    demand_hc_before_productivity / improved_productivity
+                )
 
-            split = hiring_split_parameters.get(
-                int(forecast_year),
-                {
-                    "H1": 50.0,
-                    "H2": 50.0,
-                },
+            attrition_backfill = opening_hc * attrition
+
+            gross_hiring_required = (
+                required_hc_after_productivity
+                + attrition_backfill
+                - opening_hc
             )
 
-            h1_percent = float(split.get("H1", 50.0))
-            h2_percent = float(split.get("H2", 50.0))
+            gross_hiring_required = max(gross_hiring_required, 0)
 
-            available_engineers = opening_engineers * (1 - attrition / 100)
+            closing_hc = opening_hc + gross_hiring_required
 
-            bau_future_hours = previous_bau_hours * (1 + bau_growth / 100)
+            projection_rows.append({
+                "Year": year,
+                "Role": role,
+                "Opening HC": round(opening_hc, 2),
+                "BAU Growth %": round(bau_growth * 100, 1),
+                "DC Growth %": round(dc_growth * 100, 1),
+                "Total Growth %": round(total_growth * 100, 1),
+                "Attrition %": round(attrition * 100, 1),
+                "Productivity Improvement %": round(productivity_improvement * 100, 1),
+                "Demand HC Before Productivity": round(demand_hc_before_productivity, 2),
+                "Required HC After Productivity": round(required_hc_after_productivity, 2),
+                "Attrition Backfill": round(attrition_backfill, 2),
+                "Gross Hiring Required": round(gross_hiring_required, 2),
+                "Closing HC": round(closing_hc, 2)
+            })
 
-            combined_future_hours = previous_combined_hours * (
-                1 + (bau_growth + dc_growth) / 100
-            )
+            current_hc_by_role[role] = closing_hc
+            current_productivity_by_role[role] = improved_productivity
 
-            dc_incremental_hours = max(
-                combined_future_hours - bau_future_hours,
-                0,
-            )
+    projection_df = pd.DataFrame(projection_rows)
 
-            current_required_engineers = current_hours / effective_capacity
-            bau_required_engineers = bau_future_hours / effective_capacity
-            dc_incremental_engineers = dc_incremental_hours / effective_capacity
-            combined_required_engineers = combined_future_hours / effective_capacity
+    return projection_df
 
-            gap = combined_required_engineers - available_engineers
-            additional_required = max(math.ceil(gap), 0)
 
-            h1_hiring = math.ceil(additional_required * h1_percent / 100)
-            h2_hiring = max(additional_required - h1_hiring, 0)
+def create_summary(projection_df):
+    """
+    Create year-wise summary from projection output.
+    """
 
-            closing_engineers = available_engineers + h1_hiring + h2_hiring
+    summary_df = (
+        projection_df.groupby("Year", as_index=False)
+        .agg({
+            "Opening HC": "sum",
+            "Required HC After Productivity": "sum",
+            "Attrition Backfill": "sum",
+            "Gross Hiring Required": "sum",
+            "Closing HC": "sum"
+        })
+    )
 
-            results.append(
-                {
-                    "Forecast Year": int(forecast_year),
-                    "Region": region,
-                    "Product": product,
-                    "Opening SE": round(opening_engineers, 1),
-                    "Attrition %": attrition,
-                    "Available Engineers": round(available_engineers, 1),
-                    "BAU Growth %": bau_growth,
-                    "DC Growth %": dc_growth,
-                    "Total Growth %": bau_growth + dc_growth,
-                    "Productive Hrs/Day": productive_hours,
-                    "Working Days/Month": working_days,
-                    "Utilization %": target_utilization,
-                    "Annual Capacity": round(annual_capacity, 1),
-                    "Effective Capacity": round(effective_capacity, 1),
-                    "Current Hours": round(current_hours, 1),
-                    "Current Required Engineers": round(current_required_engineers, 1),
-                    "BAU Future Hours": round(bau_future_hours, 1),
-                    "BAU Required Engineers": round(bau_required_engineers, 1),
-                    "DC Incremental Hours": round(dc_incremental_hours, 1),
-                    "DC Incremental Engineers": round(dc_incremental_engineers, 1),
-                    "Combined Future Hours": round(combined_future_hours, 1),
-                    "Combined Required Engineers": round(combined_required_engineers, 1),
-                    "Combined Net Gap / Surplus": round(gap, 1),
-                    "Combined Additional Required": int(additional_required),
-                    "H1 Hiring %": h1_percent,
-                    "H2 Hiring %": h2_percent,
-                    "H1 Hiring": int(h1_hiring),
-                    "H2 Hiring": int(h2_hiring),
-                    "Closing SE": round(closing_engineers, 1),
-                }
-            )
+    numeric_cols = summary_df.select_dtypes(include=[np.number]).columns
+    summary_df[numeric_cols] = summary_df[numeric_cols].round(2)
 
-            opening_engineers = closing_engineers
-            previous_bau_hours = bau_future_hours
-            previous_combined_hours = combined_future_hours
+    return summary_df
 
-    return pd.DataFrame(results)
+
+def split_projection_tabs(projection_df, summary_df):
+    """
+    Split projection into:
+    1. Next Year tab
+    2. Remaining 2 Years tab
+    """
+
+    next_year_df = projection_df[
+        projection_df["Year"] == "Year 1"
+    ].copy()
+
+    remaining_years_df = projection_df[
+        projection_df["Year"].isin(["Year 2", "Year 3"])
+    ].copy()
+
+    next_year_summary = summary_df[
+        summary_df["Year"] == "Year 1"
+    ].copy()
+
+    remaining_years_summary = summary_df[
+        summary_df["Year"].isin(["Year 2", "Year 3"])
+    ].copy()
+
+    return (
+        next_year_df,
+        remaining_years_df,
+        next_year_summary,
+        remaining_years_summary
+ 
