@@ -4,6 +4,9 @@ import numpy as np
 import workforce_model as wm
 
 
+# ------------------------------------------------------------
+# Page configuration
+# ------------------------------------------------------------
 st.set_page_config(
     page_title="Workforce Planning App",
     page_icon="📊",
@@ -11,6 +14,9 @@ st.set_page_config(
 )
 
 
+# ------------------------------------------------------------
+# Session state initialization
+# ------------------------------------------------------------
 def initialize_session_state():
     if "base_workforce" not in st.session_state:
         st.session_state.base_workforce = wm.get_default_base_workforce()
@@ -31,10 +37,18 @@ def initialize_session_state():
 initialize_session_state()
 
 
+# ------------------------------------------------------------
+# App title
+# ------------------------------------------------------------
 st.title("Workforce Planning Projection")
-st.caption("Next year is shown in one tab and the remaining two years are shown in another tab.")
+st.caption(
+    "Next year is shown in one tab and the remaining two years are shown in another tab."
+)
 
 
+# ------------------------------------------------------------
+# Sidebar assumptions
+# ------------------------------------------------------------
 st.sidebar.header("Assumptions Panel")
 st.sidebar.info("Edit assumptions below and click Apply Assumptions to refresh the projection.")
 
@@ -106,6 +120,9 @@ if apply_button:
     st.sidebar.success("Assumptions applied successfully.")
 
 
+# ------------------------------------------------------------
+# Projection calculation
+# ------------------------------------------------------------
 try:
     projection_df = wm.calculate_projection(
         st.session_state.base_workforce,
@@ -129,6 +146,9 @@ except Exception as error:
     st.stop()
 
 
+# ------------------------------------------------------------
+# KPI section
+# ------------------------------------------------------------
 total_current_hc = st.session_state.base_workforce["Current HC"].sum()
 next_year_hiring = next_year_df["Gross Hiring Required"].sum()
 remaining_years_hiring = remaining_years_df["Gross Hiring Required"].sum()
@@ -162,6 +182,9 @@ with kpi_4:
     )
 
 
+# ------------------------------------------------------------
+# Main tabs
+# ------------------------------------------------------------
 tab_next_year, tab_remaining_years, tab_full_projection = st.tabs(
     [
         "Next Year",
@@ -171,6 +194,9 @@ tab_next_year, tab_remaining_years, tab_full_projection = st.tabs(
 )
 
 
+# ------------------------------------------------------------
+# Tab 1: Next Year
+# ------------------------------------------------------------
 with tab_next_year:
     st.subheader("Next Year Projection")
 
@@ -204,6 +230,9 @@ with tab_next_year:
     st.bar_chart(next_year_chart_df)
 
 
+# ------------------------------------------------------------
+# Tab 2: Remaining 2 Years
+# ------------------------------------------------------------
 with tab_remaining_years:
     st.subheader("Remaining 2 Years Projection")
 
@@ -254,6 +283,9 @@ with tab_remaining_years:
     )
 
 
+# ------------------------------------------------------------
+# Tab 3: Full 3-Year View
+# ------------------------------------------------------------
 with tab_full_projection:
     st.subheader("Full 3-Year Projection")
 
@@ -284,6 +316,9 @@ with tab_full_projection:
     st.bar_chart(hiring_by_year)
 
 
+# ------------------------------------------------------------
+# Download section
+# ------------------------------------------------------------
 st.divider()
 st.subheader("Download Output")
 
@@ -311,4 +346,9 @@ with download_col_2:
     )
 
 
-st.caption("Projection uses BAU growth, DC growth, attrition, and workforce productivity assumptions.")
+# ------------------------------------------------------------
+# Footer
+# ------------------------------------------------------------
+st.caption(
+    "Projection uses BAU growth, DC growth, attrition, and workforce productivity assumptions."
+)
