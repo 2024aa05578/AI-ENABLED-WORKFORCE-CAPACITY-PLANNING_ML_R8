@@ -77,7 +77,7 @@ DEFAULT_GROWTH_FACTORS = {
 
 DEFAULT_ATTRITION = {product: 8.0 for product in PRODUCTS}
 
-APP_SCHEMA_VERSION = "v15_three_year_forecast_growth_factors"
+APP_SCHEMA_VERSION = "v16_three_year_rolling_forecast"
 
 
 def init_state():
@@ -250,6 +250,7 @@ def validate_input_data(df):
         st.stop()
 
     df = df.copy()
+
     df["Region"] = df["Region"].astype(str).str.strip()
     df["Product"] = df["Product"].astype(str).str.strip().replace(PRODUCT_ALIASES)
 
@@ -488,6 +489,7 @@ if apply_assumptions:
     st.session_state.attrition_parameters = attrition_df_to_dict(edited_attrition_df)
 
     p = edited_productivity_df.iloc[0]
+
     st.session_state.productive_hours = float(p["Hrs/Day"])
     st.session_state.working_days = int(p["Days/M"])
     st.session_state.target_utilization = float(p["Util %"])
@@ -508,10 +510,13 @@ if uploaded_file is not None:
 
     if current_file_id != st.session_state.uploaded_file_id:
         try:
-            st.session_state.input_df = validate_input_data(safe_read_csv(uploaded_file))
+            st.session_state.input_df = validate_input_data(
+                safe_read_csv(uploaded_file)
+            )
             st.session_state.uploaded_file_id = current_file_id
             st.session_state.needs_recalc = True
             st.success("CSV uploaded successfully.")
+
         except Exception as error:
             st.error("CSV upload failed. Please check file format.")
             st.exception(error)
@@ -534,7 +539,14 @@ filtered_df = original_df.copy()
 
 with filter_col1:
     if "Year" in filtered_df.columns:
-        base_years = filtered_df["Year"].dropna().astype(int).sort_values().unique().tolist()
+        base_years = (
+            filtered_df["Year"]
+            .dropna()
+            .astype(int)
+            .sort_values()
+            .unique()
+            .tolist()
+        )
 
         selected_base_years = st.multiselect(
             "Select Base Year",
@@ -542,12 +554,16 @@ with filter_col1:
             default=base_years,
         )
 
-        filtered_df = filtered_df[filtered_df["Year"].astype(int).isin(selected_base_years)]
+        filtered_df = filtered_df[
+            filtered_df["Year"].astype(int).isin(selected_base_years)
+        ]
     else:
         selected_base_years = ["All"]
 
 with filter_col2:
-    available_regions = [r for r in REGIONS if r in filtered_df["Region"].unique()]
+    available_regions = [
+        r for r in REGIONS if r in filtered_df["Region"].unique()
+    ]
 
     selected_regions = st.multiselect(
         "Select Region",
@@ -555,7 +571,9 @@ with filter_col2:
         default=available_regions,
     )
 
-    filtered_df = filtered_df[filtered_df["Region"].isin(selected_regions)]
+    filtered_df = filtered_df[
+        filtered_df["Region"].isin(selected_regions)
+    ]
 
 with filter_col3:
     selected_forecast_years = st.multiselect(
@@ -626,14 +644,29 @@ year_summary = (
 
 kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
-kpi1.metric("Existing 2026 SE", round(filtered_df["Current_SE"].sum(), 1))
+kpi1.metric(
+    "Existing 2026 SE",
+    round(filtered_df["Current_SE"].sum(), 1),
+)
 
 for metric_col, year in zip([kpi2, kpi3, kpi4], FORECAST_YEARS):
     year_row = year_summary[year_summary["Year"] == year]
-    value = int(year_row["Additional_Required"].sum()) if not year_row.empty else 0
-    metric_col.metric(f"{year} Additional Required", value)
 
-kpi5.metric("Selected Years Total Hiring", int(year_summary["Additional_Required"].sum()))
+    value = (
+        int(year_row["Additional_Required"].sum())
+        if not year_row.empty
+        else 0
+    )
+
+    metric_col.metric(
+        f"{year} Additional Required",
+        value,
+    )
+
+kpi5.metric(
+    "Selected Years Total Hiring",
+    int(year_summary["Additional_Required"].sum()),
+)
 
 # =====================================================
 # VISUAL DASHBOARD
@@ -643,7 +676,11 @@ st.subheader("Visual Dashboard")
 
 trend_df = year_summary.melt(
     id_vars="Year",
-    value_vars=["Available", "Combined_Required", "Additional_Required"],
+    value_vars=[
+        "Available",
+        "Combined_Required",
+        "Additional_Required",
+    ],
     var_name="Metric",
     value_name="Engineers",
 )
@@ -656,13 +693,18 @@ trend_df["Metric"] = trend_df["Metric"].replace(
     }
 )
 
-show_line(trend_df, "Three-Year Workforce Forecast Trend")
+show_line(
+    trend_df,
+    "Three-Year Workforce Forecast Trend",
+)
 
 chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
     show_bar(
-        result.groupby("Product")["Combined Required Engineers"].sum().reset_index(),
+        result.groupby("Product")["Combined Required Engineers"]
+        .sum()
+        .reset_index(),
         "Product",
         "Combined Required Engineers",
         "Selected Years Required SE by Product",
@@ -671,7 +713,9 @@ with chart_col1:
 
 with chart_col2:
     show_bar(
-        result.groupby("Region")["Combined Required Engineers"].sum().reset_index(),
+        result.groupby("Region")["Combined Required Engineers"]
+        .sum()
+        .reset_index(),
         "Region",
         "Combined Required Engineers",
         "Selected Years Required SE by Region",
@@ -682,7 +726,9 @@ chart_col3, chart_col4 = st.columns(2)
 
 with chart_col3:
     show_bar(
-        result.groupby("Product")["Combined Additional Required"].sum().reset_index(),
+        result.groupby("Product")["Combined Additional Required"]
+        .sum()
+        .reset_index(),
         "Product",
         "Combined Additional Required",
         "Selected Years Additional Requirement by Product",
@@ -691,7 +737,9 @@ with chart_col3:
 
 with chart_col4:
     show_bar(
-        result.groupby("Region")["Combined Additional Required"].sum().reset_index(),
+        result.groupby("Region")["Combined Additional Required"]
+        .sum()
+        .reset_index(),
         "Region",
         "Combined Additional Required",
         "Selected Years Additional Requirement by Region",
@@ -715,7 +763,10 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
 
 with tab0:
     st.subheader("Executive Summary")
-    st.dataframe(year_summary.round(1), use_container_width=True)
+    st.dataframe(
+        year_summary.round(1),
+        use_container_width=True,
+    )
 
     if int(year_summary["Additional_Required"].sum()) > 0:
         top_product = (
@@ -744,15 +795,23 @@ with tab0:
             f"with **{int(peak_year['Additional_Required'])} SE**."
         )
     else:
-        st.success("No additional hiring requirement is currently projected for selected filters.")
+        st.success(
+            "No additional hiring requirement is currently projected for selected filters."
+        )
 
 with tab1:
     st.subheader("Uploaded Input Data")
-    st.dataframe(filtered_df, use_container_width=True)
+    st.dataframe(
+        filtered_df,
+        use_container_width=True,
+    )
 
 with tab2:
     st.subheader("Workforce Planning Results")
-    st.dataframe(result, use_container_width=True)
+    st.dataframe(
+        result,
+        use_container_width=True,
+    )
 
 with tab3:
     st.subheader("BU Requirement Comparison")
@@ -776,21 +835,34 @@ with tab3:
     )
 
     required = required.rename(
-        columns={year: f"{year} Required SE" for year in FORECAST_YEARS}
+        columns={
+            year: f"{year} Required SE"
+            for year in FORECAST_YEARS
+        }
     )
 
-    comparison = existing.merge(required, on="Product", how="outer").fillna(0)
+    comparison = existing.merge(
+        required,
+        on="Product",
+        how="outer",
+    ).fillna(0)
 
     if "2029 Required SE" in comparison.columns:
         comparison["2029 Gap / Surplus"] = (
-            comparison["2029 Required SE"] - comparison["Existing 2026 SE"]
+            comparison["2029 Required SE"]
+            - comparison["Existing 2026 SE"]
         ).round(1)
 
-        comparison["2029 Additional Required"] = comparison["2029 Gap / Surplus"].apply(
-            lambda v: max(math.ceil(v), 0)
+        comparison["2029 Additional Required"] = comparison[
+            "2029 Gap / Surplus"
+        ].apply(
+            lambda value: max(math.ceil(value), 0)
         )
 
-    st.dataframe(comparison.round(1), use_container_width=True)
+    st.dataframe(
+        comparison.round(1),
+        use_container_width=True,
+    )
 
 with tab4:
     st.subheader("Yearly Requirement Tables")
@@ -830,7 +902,11 @@ with tab4:
 
 with tab5:
     st.subheader("Growth Factors Used for 2028 and 2029")
-    st.dataframe(growth_factors_to_df(), use_container_width=True)
+
+    st.dataframe(
+        growth_factors_to_df(),
+        use_container_width=True,
+    )
 
     st.subheader("Effective BAU/DC Growth by Year")
 
