@@ -29,13 +29,11 @@ def calculate_workforce(
     - 2027 BAU/DC growth comes from region-product growth assumptions.
     - 2028 BAU/DC growth = 2027 growth x region-level 2028 factor.
     - 2029 BAU/DC growth = 2028 growth x region-level 2029 factor.
-    - Workload rolls forward year by year.
-    - 2028 is calculated on 2027 workload.
-    - 2029 is calculated on 2028 workload.
+    - Workload rolls forward year by year; 2028 is calculated on 2027 workload,
+      and 2029 is calculated on 2028 workload.
     - Engineer availability rolls forward using previous year ending headcount
       after hiring and then applying attrition.
     """
-
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -43,21 +41,17 @@ def calculate_workforce(
 
     if monthly_capacity <= 0:
         raise ValueError(
-            "Monthly capacity must be greater than zero. "
-            "Check productivity assumptions."
+            "Monthly capacity must be greater than zero. Check productivity assumptions."
         )
 
-    grouped = (
-        df.groupby(["Region", "Product"], as_index=False)
-        .agg(
-            Current_SE=("Current_SE", "sum"),
-            Breakdown_WO=("Breakdown_WO", "sum"),
-            Breakdown_Hrs=("Breakdown_Hrs", "sum"),
-            PM_WO=("PM_WO", "sum"),
-            PM_Hrs=("PM_Hrs", "sum"),
-            Startup_WO=("Startup_WO", "sum"),
-            Startup_Hrs=("Startup_Hrs", "sum"),
-        )
+    grouped = df.groupby(["Region", "Product"], as_index=False).agg(
+        Current_SE=("Current_SE", "sum"),
+        Breakdown_WO=("Breakdown_WO", "sum"),
+        Breakdown_Hrs=("Breakdown_Hrs", "sum"),
+        PM_WO=("PM_WO", "sum"),
+        PM_Hrs=("PM_Hrs", "sum"),
+        Startup_WO=("Startup_WO", "sum"),
+        Startup_Hrs=("Startup_Hrs", "sum"),
     )
 
     results = []
@@ -119,14 +113,8 @@ def calculate_workforce(
                 1 - attrition_pct / 100.0
             )
 
-            bau_hours = previous_total_hours * (
-                1 + bau_growth_pct / 100.0
-            )
-
-            dc_incremental_hours = previous_total_hours * (
-                dc_growth_pct / 100.0
-            )
-
+            bau_hours = previous_total_hours * (1 + bau_growth_pct / 100.0)
+            dc_incremental_hours = previous_total_hours * (dc_growth_pct / 100.0)
             combined_hours = bau_hours + dc_incremental_hours
 
             bau_required_engineers = bau_hours / monthly_capacity
