@@ -22,11 +22,19 @@ def calculate_workforce(
     working_days,
     target_utilization,
 ):
-    # Three-year workforce forecast for 2027, 2028 and 2029.
-    # 2027 BAU/DC growth comes from region-product growth assumptions.
-    # 2028 growth = 2027 growth x region-level 2028 factor.
-    # 2029 growth = 2028 growth x region-level 2029 factor.
-    # Available engineers roll forward from previous year's required engineers after attrition.
+    """
+    Rolling three-year workforce forecast for 2027, 2028 and 2029.
+
+    Logic:
+    - 2027 BAU/DC growth comes from region-product growth assumptions.
+    - 2028 BAU/DC growth = 2027 growth x region-level 2028 factor.
+    - 2029 BAU/DC growth = 2028 growth x region-level 2029 factor.
+    - Workload rolls forward year by year.
+    - 2028 is calculated on 2027 workload.
+    - 2029 is calculated on 2028 workload.
+    - Engineer availability rolls forward using previous year ending headcount
+      after hiring and then applying attrition.
+    """
 
     if df is None or df.empty:
         return pd.DataFrame()
@@ -34,16 +42,22 @@ def calculate_workforce(
     monthly_capacity = productive_hours * working_days * (target_utilization / 100.0)
 
     if monthly_capacity <= 0:
-        raise ValueError("Monthly capacity must be greater than zero. Check productivity assumptions.")
+        raise ValueError(
+            "Monthly capacity must be greater than zero. "
+            "Check productivity assumptions."
+        )
 
-    grouped = df.groupby(["Region", "Product"], as_index=False).agg(
-        Current_SE=("Current_SE", "sum"),
-        Breakdown_WO=("Breakdown_WO", "sum"),
-        Breakdown_Hrs=("Breakdown_Hrs", "sum"),
-        PM_WO=("PM_WO", "sum"),
-        PM_Hrs=("PM_Hrs", "sum"),
-        Startup_WO=("Startup_WO", "sum"),
-        Startup_Hrs=("Startup_Hrs", "sum"),
+    grouped = (
+        df.groupby(["Region", "Product"], as_index=False)
+        .agg(
+            Current_SE=("Current_SE", "sum"),
+            Breakdown_WO=("Breakdown_WO", "sum"),
+            Breakdown_Hrs=("Breakdown_Hrs", "sum"),
+            PM_WO=("PM_WO", "sum"),
+            PM_Hrs=("PM_Hrs", "sum"),
+            Startup_WO=("Startup_WO", "sum"),
+            Startup_Hrs=("Startup_Hrs", "sum"),
+        )
     )
 
     results = []
@@ -69,7 +83,8 @@ def calculate_workforce(
             + _safe_number(row["Startup_Hrs"])
         )
 
-        previous_required_engineers = current_se_2026
+        previous_total_hours = base_total_hours
+        previous_ending_engineers = current_se_2026
         previous_bau_growth = base_bau_growth
         previous_dc_growth = base_dc_growth
 
@@ -100,10 +115,18 @@ def calculate_workforce(
                     1.0,
                 )
 
-            available_engineers = previous_required_engineers * (1 - attrition_pct / 100.0)
+            available_engineers = previous_ending_engineers * (
+                1 - attrition_pct / 100.0
+            )
 
-            bau_hours = base_total_hours * (1 + bau_growth_pct / 100.0)
-            dc_incremental_hours = base_total_hours * (dc_growth_pct / 100.0)
+            bau_hours = previous_total_hours * (
+                1 + bau_growth_pct / 100.0
+            )
+
+            dc_incremental_hours = previous_total_hours * (
+                dc_growth_pct / 100.0
+            )
+
             combined_hours = bau_hours + dc_incremental_hours
 
             bau_required_engineers = bau_hours / monthly_capacity
@@ -115,25 +138,40 @@ def calculate_workforce(
                 0,
             )
 
+            ending_engineers = available_engineers + combined_additional_required
+
             results.append(
                 {
                     "Region": region,
                     "Product": product,
                     "Year": year,
-                    "Base Total Hours": round(base_total_hours, 2),
+                    "Opening Workload Hours": round(previous_total_hours, 2),
                     "BAU Growth %": round(bau_growth_pct, 2),
                     "DC Growth %": round(dc_growth_pct, 2),
-                    "Current Engineers Base": round(previous_required_engineers, 2),
+                    "BAU Required Hours": round(bau_hours, 2),
+                    "DC Incremental Hours": round(dc_incremental_hours, 2),
+                    "Combined Required Hours": round(combined_hours, 2),
+                    "Opening Engineers": round(previous_ending_engineers, 2),
                     "Attrition %": round(attrition_pct, 2),
                     "Available Engineers": round(available_engineers, 2),
                     "BAU Required Engineers": round(bau_required_engineers, 2),
                     "DC Incremental Engineers": round(dc_incremental_engineers, 2),
-                    "Combined Required Engineers": round(combined_required_engineers, 2),
-                    "Combined Additional Required": int(combined_additional_required),
+                    "Combined Required Engineers": round(
+                        combined_required_engineers,
+                        2,
+                    ),
+                    "Combined Additional Required": int(
+                        combined_additional_required
+                    ),
+                    "Ending Engineers After Hiring": round(
+                        ending_engineers,
+                        2,
+                    ),
                 }
             )
 
-            previous_required_engineers = combined_required_engineers
+            previous_total_hours = combined_hours
+            previous_ending_engineers = ending_engineers
             previous_bau_growth = bau_growth_pct
             previous_dc_growth = dc_growth_pct
 
