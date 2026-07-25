@@ -93,7 +93,7 @@ DEFAULT_ATTRITION = {
     product: 8.0 for product in PRODUCTS
 }
 
-APP_SCHEMA_VERSION = "v17_headcount_based_forecast"
+APP_SCHEMA_VERSION = "v18_vp_exec_summary_no_decimals"
 
 
 def init_state():
@@ -134,8 +134,7 @@ def growth_region_dfs_to_dict(edited_growth_dfs):
 
     for region, growth_df in edited_growth_dfs.items():
         for _, row in growth_df.iterrows():
-            product_label = str(row["Product"]).strip()
-            product = PRODUCT_REVERSE_DISPLAY.get(product_label)
+            product = PRODUCT_REVERSE_DISPLAY.get(str(row["Product"]).strip())
 
             if product in PRODUCTS:
                 values[region][product] = {
@@ -197,8 +196,7 @@ def attrition_df_to_dict(attrition_df):
     values = copy.deepcopy(DEFAULT_ATTRITION)
 
     for _, row in attrition_df.iterrows():
-        product_label = str(row["Product"]).strip()
-        product = PRODUCT_REVERSE_DISPLAY.get(product_label)
+        product = PRODUCT_REVERSE_DISPLAY.get(str(row["Product"]).strip())
 
         if product in PRODUCTS:
             values[product] = float(row["Attr %"])
@@ -340,7 +338,7 @@ def show_bar(data, x_col, y_col, title, color_col=None):
     )
 
     fig.update_traces(
-        texttemplate="%{text:.1f}",
+        texttemplate="%{text:.0f}",
         textposition="outside",
         cliponaxis=False,
     )
@@ -525,11 +523,9 @@ if apply_assumptions:
     st.session_state.growth_parameters = growth_region_dfs_to_dict(
         edited_growth_dfs
     )
-
     st.session_state.growth_factors = growth_factors_df_to_dict(
         edited_growth_factors_df
     )
-
     st.session_state.attrition_parameters = attrition_df_to_dict(
         edited_attrition_df
     )
@@ -563,10 +559,8 @@ if uploaded_file is not None:
             st.session_state.input_df = validate_input_data(
                 safe_read_csv(uploaded_file)
             )
-
             st.session_state.uploaded_file_id = current_file_id
             st.session_state.needs_recalc = True
-
             st.success("CSV uploaded successfully.")
 
         except Exception as error:
@@ -689,22 +683,13 @@ kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
 kpi1.metric(
     "Existing 2026 SE",
-    round(filtered_df["Current_SE"].sum(), 1),
+    int(round(filtered_df["Current_SE"].sum(), 0)),
 )
 
 for metric_col, year in zip([kpi2, kpi3, kpi4], FORECAST_YEARS):
     year_row = year_summary[year_summary["Year"] == year]
-
-    value = (
-        int(year_row["Additional_Required"].sum())
-        if not year_row.empty
-        else 0
-    )
-
-    metric_col.metric(
-        f"{year} Additional Required",
-        value,
-    )
+    value = int(year_row["Additional_Required"].sum()) if not year_row.empty else 0
+    metric_col.metric(f"{year} Additional Required", value)
 
 kpi5.metric(
     "Selected Years Total Hiring",
@@ -716,11 +701,7 @@ st.subheader("Visual Dashboard")
 
 trend_df = year_summary.melt(
     id_vars="Year",
-    value_vars=[
-        "Available",
-        "Combined_Required",
-        "Additional_Required",
-    ],
+    value_vars=["Available", "Combined_Required", "Additional_Required"],
     var_name="Metric",
     value_name="Engineers",
 )
@@ -733,6 +714,8 @@ trend_df["Metric"] = trend_df["Metric"].replace(
     }
 )
 
+trend_df["Engineers"] = trend_df["Engineers"].round(0)
+
 show_line(
     trend_df,
     "Three-Year Workforce Forecast Trend",
@@ -741,14 +724,10 @@ show_line(
 chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
-    product_required = (
+    show_bar(
         result.groupby("Product")["Combined Required Engineers"]
         .sum()
-        .reset_index()
-    )
-
-    show_bar(
-        product_required,
+        .reset_index(),
         "Product",
         "Combined Required Engineers",
         "Selected Years Required SE by Product",
@@ -756,14 +735,10 @@ with chart_col1:
     )
 
 with chart_col2:
-    region_required = (
+    show_bar(
         result.groupby("Region")["Combined Required Engineers"]
         .sum()
-        .reset_index()
-    )
-
-    show_bar(
-        region_required,
+        .reset_index(),
         "Region",
         "Combined Required Engineers",
         "Selected Years Required SE by Region",
@@ -773,14 +748,10 @@ with chart_col2:
 chart_col3, chart_col4 = st.columns(2)
 
 with chart_col3:
-    product_hiring = (
+    show_bar(
         result.groupby("Product")["Combined Additional Required"]
         .sum()
-        .reset_index()
-    )
-
-    show_bar(
-        product_hiring,
+        .reset_index(),
         "Product",
         "Combined Additional Required",
         "Selected Years Additional Requirement by Product",
@@ -788,14 +759,10 @@ with chart_col3:
     )
 
 with chart_col4:
-    region_hiring = (
+    show_bar(
         result.groupby("Region")["Combined Additional Required"]
         .sum()
-        .reset_index()
-    )
-
-    show_bar(
-        region_hiring,
+        .reset_index(),
         "Region",
         "Combined Additional Required",
         "Selected Years Additional Requirement by Region",
@@ -815,43 +782,220 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
 )
 
 with tab0:
-    st.subheader("Executive Summary")
+    st.subheader("Executive Summary - VP View")
+
+    total_existing = int(round(filtered_df["Current_SE"].sum(), 0))
+    total_hiring = int(round(year_summary["Additional_Required"].sum(), 0))
+    selected_years_text = ", ".join([str(year) for year in selected_forecast_years])
+
+    final_year = max(selected_forecast_years)
+    final_year_row = year_summary[year_summary["Year"] == final_year]
+
+    final_required = (
+        int(round(final_year_row["Combined_Required"].sum(), 0))
+        if not final_year_row.empty
+        else 0
+    )
+
+    final_available = (
+        int(round(final_year_row["Available"].sum(), 0))
+        if not final_year_row.empty
+        else 0
+    )
+
+    peak_year_row = year_summary.sort_values(
+        "Additional_Required",
+        ascending=False,
+    ).iloc[0]
+
+    peak_year = int(peak_year_row["Year"])
+    peak_hiring = int(round(peak_year_row["Additional_Required"], 0))
+
+    final_growth_pct = (
+        ((final_required - total_existing) / total_existing) * 100
+        if total_existing > 0
+        else 0
+    )
+
+    hiring_intensity_pct = (
+        (total_hiring / total_existing) * 100
+        if total_existing > 0
+        else 0
+    )
+
+    if hiring_intensity_pct >= 15:
+        capacity_status = "High expansion requirement"
+        status_message = (
+            "The forecast indicates a material capacity build-up requirement. "
+            "Leadership attention is recommended for hiring phasing, onboarding "
+            "bandwidth, and regional deployment readiness."
+        )
+    elif hiring_intensity_pct >= 8:
+        capacity_status = "Moderate expansion requirement"
+        status_message = (
+            "The forecast indicates a controlled but visible manpower increase. "
+            "Hiring actions should be planned early to avoid capacity constraints "
+            "in peak demand periods."
+        )
+    else:
+        capacity_status = "Controlled requirement"
+        status_message = (
+            "The forecast indicates a manageable workforce requirement. Current "
+            "capacity and planned hiring appear broadly aligned with the selected "
+            "assumptions."
+        )
+
+    exec_kpi1, exec_kpi2, exec_kpi3, exec_kpi4 = st.columns(4)
+
+    exec_kpi1.metric("Current Base SE", total_existing)
+    exec_kpi2.metric(f"{final_year} Required SE", final_required)
+    exec_kpi3.metric("Total Hiring Need", total_hiring)
+    exec_kpi4.metric("Peak Hiring Year", f"{peak_year} ({peak_hiring} SE)")
+
+    st.markdown("---")
+
+    st.markdown(
+        f"""
+        ### Leadership Readout
+
+        For the selected forecast period **{selected_years_text}**, the current installed service engineering base is **{total_existing} SE**.
+
+        The projected requirement by **{final_year}** is **{final_required} SE**, compared with **{final_available} SE** available after attrition before hiring.
+
+        The model projects a total additional hiring requirement of **{total_hiring} SE**, with the highest annual hiring need in **{peak_year}** at **{peak_hiring} SE**.
+
+        **Executive interpretation:** **{capacity_status}**. {status_message}
+
+        **Strategic implication:** The forecasted final-year requirement represents approximately **{final_growth_pct:.0f}%** movement versus the current base. The selected-year total hiring intensity is approximately **{hiring_intensity_pct:.0f}%** of the current base.
+        """
+    )
+
+    st.markdown("### Year-wise Workforce Outlook")
+
+    year_summary_display = year_summary.copy()
+
+    numeric_cols = [
+        "Available",
+        "BAU_Required",
+        "DC_Incremental",
+        "Combined_Required",
+        "Additional_Required",
+    ]
+
+    year_summary_display[numeric_cols] = (
+        year_summary_display[numeric_cols]
+        .round(0)
+        .astype(int)
+    )
+
+    year_summary_display = year_summary_display.rename(
+        columns={
+            "Available": "Available SE After Attrition",
+            "BAU_Required": "BAU Required SE",
+            "DC_Incremental": "DC Incremental SE",
+            "Combined_Required": "Combined Required SE",
+            "Additional_Required": "Additional Hiring SE",
+        }
+    )
 
     st.dataframe(
-        year_summary.round(1),
+        year_summary_display,
         use_container_width=True,
     )
 
-    if int(year_summary["Additional_Required"].sum()) > 0:
-        top_product = (
-            result.groupby("Product")["Combined Additional Required"]
-            .sum()
-            .sort_values(ascending=False)
+    product_exec = (
+        result.groupby("Product")
+        .agg(
+            Required_SE=("Combined Required Engineers", "sum"),
+            Hiring_SE=("Combined Additional Required", "sum"),
+        )
+        .reset_index()
+    )
+
+    product_exec[["Required_SE", "Hiring_SE"]] = (
+        product_exec[["Required_SE", "Hiring_SE"]]
+        .round(0)
+        .astype(int)
+    )
+
+    product_exec = product_exec.sort_values(
+        "Hiring_SE",
+        ascending=False,
+    )
+
+    region_exec = (
+        result.groupby("Region")
+        .agg(
+            Required_SE=("Combined Required Engineers", "sum"),
+            Hiring_SE=("Combined Additional Required", "sum"),
+        )
+        .reset_index()
+    )
+
+    region_exec[["Required_SE", "Hiring_SE"]] = (
+        region_exec[["Required_SE", "Hiring_SE"]]
+        .round(0)
+        .astype(int)
+    )
+
+    region_exec = region_exec.sort_values(
+        "Hiring_SE",
+        ascending=False,
+    )
+
+    summary_col1, summary_col2 = st.columns(2)
+
+    with summary_col1:
+        st.markdown("### Product Prioritization")
+
+        st.dataframe(
+            product_exec.rename(
+                columns={
+                    "Required_SE": "Selected Years Required SE",
+                    "Hiring_SE": "Selected Years Hiring SE",
+                }
+            ),
+            use_container_width=True,
         )
 
-        top_region = (
-            result.groupby("Region")["Combined Additional Required"]
-            .sum()
-            .sort_values(ascending=False)
+    with summary_col2:
+        st.markdown("### Regional Prioritization")
+
+        st.dataframe(
+            region_exec.rename(
+                columns={
+                    "Required_SE": "Selected Years Required SE",
+                    "Hiring_SE": "Selected Years Hiring SE",
+                }
+            ),
+            use_container_width=True,
         )
 
-        peak_year = year_summary.sort_values(
-            "Additional_Required",
-            ascending=False,
-        ).iloc[0]
+    st.markdown("### VP Action Notes")
+
+    if total_hiring > 0:
+        top_product_name = product_exec.iloc[0]["Product"]
+        top_product_hiring = int(product_exec.iloc[0]["Hiring_SE"])
+
+        top_region_name = region_exec.iloc[0]["Region"]
+        top_region_hiring = int(region_exec.iloc[0]["Hiring_SE"])
 
         st.warning(
-            f"Highest additional requirement is in **{top_product.index[0]}** "
-            f"with **{int(top_product.iloc[0])} SE**. "
-            f"Region-wise highest requirement is in **{top_region.index[0]}** "
-            f"with **{int(top_region.iloc[0])} SE**. "
-            f"Peak hiring year is **{int(peak_year['Year'])}** "
-            f"with **{int(peak_year['Additional_Required'])} SE**."
+            f"Highest product-level hiring pressure is in **{top_product_name}** "
+            f"with **{top_product_hiring} SE**. Highest regional hiring pressure "
+            f"is in **{top_region_name}** with **{top_region_hiring} SE**. "
+            f"Recommended VP-level actions: validate growth assumptions with "
+            f"business leaders, phase hiring by quarter, confirm onboarding "
+            f"capacity, and review cross-region redeployment options before "
+            f"external hiring commitment."
         )
 
     else:
         st.success(
-            "No additional hiring requirement is currently projected for selected filters."
+            "No additional hiring requirement is projected under the selected "
+            "assumptions. Recommended VP-level action: validate whether growth, "
+            "attrition, and DC assumptions are realistic, because zero hiring may "
+            "indicate either sufficient capacity or conservative workload assumptions."
         )
 
 with tab1:
@@ -915,7 +1059,7 @@ with tab3:
         )
 
     st.dataframe(
-        comparison.round(1),
+        comparison.round(0),
         use_container_width=True,
     )
 
@@ -936,7 +1080,7 @@ with tab4:
         )
 
         st.dataframe(
-            add_total_row_and_column(combined_table).round(1),
+            add_total_row_and_column(combined_table).round(0),
             use_container_width=True,
         )
 
@@ -951,7 +1095,7 @@ with tab4:
         )
 
         st.dataframe(
-            add_total_row_and_column(hiring_table).round(1),
+            add_total_row_and_column(hiring_table).round(0),
             use_container_width=True,
         )
 
