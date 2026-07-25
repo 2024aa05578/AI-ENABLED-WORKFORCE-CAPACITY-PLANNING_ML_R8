@@ -14,7 +14,11 @@ st.set_page_config(
     layout="wide",
 )
 
+# =====================================================
+# MASTER DATA
+# =====================================================
 REGIONS = ["North", "West", "South", "East"]
+
 PRODUCTS = [
     "UPS",
     "Cooling",
@@ -22,6 +26,7 @@ PRODUCTS = [
     "Power System",
     "Industrial Automation",
 ]
+
 FORECAST_YEARS = [2027, 2028, 2029]
 
 PRODUCT_ALIASES = {
@@ -46,6 +51,9 @@ PRODUCT_REVERSE_DISPLAY = {
     value: key for key, value in PRODUCT_DISPLAY.items()
 }
 
+# =====================================================
+# DEFAULT PARAMETERS
+# =====================================================
 DEFAULT_GROWTH_PARAMETERS = {
     "North": {
         "UPS": {"BAU": 20.0, "DC": 10.0},
@@ -91,18 +99,23 @@ DEFAULT_ATTRITION = {
     product: 8.0 for product in PRODUCTS
 }
 
-APP_SCHEMA_VERSION = "v19_phase1_recommendations"
+APP_SCHEMA_VERSION = "v20_functional_inputs_exec_summary"
 
 
+# =====================================================
+# SESSION INITIALIZATION
+# =====================================================
 def init_state():
     if st.session_state.get("schema_version") != APP_SCHEMA_VERSION:
         st.session_state.schema_version = APP_SCHEMA_VERSION
         st.session_state.growth_parameters = copy.deepcopy(DEFAULT_GROWTH_PARAMETERS)
         st.session_state.growth_factors = copy.deepcopy(DEFAULT_GROWTH_FACTORS)
         st.session_state.attrition_parameters = copy.deepcopy(DEFAULT_ATTRITION)
+
         st.session_state.productive_hours = 7.0
         st.session_state.working_days = 20
         st.session_state.target_utilization = 90.0
+
         st.session_state.input_df = None
         st.session_state.result_df = None
         st.session_state.needs_recalc = False
@@ -110,6 +123,9 @@ def init_state():
         st.session_state.last_filter_signature = None
 
 
+# =====================================================
+# SIDEBAR HELPERS
+# =====================================================
 def growth_region_to_df(region):
     rows = []
 
@@ -132,7 +148,8 @@ def growth_region_dfs_to_dict(edited_growth_dfs):
 
     for region, growth_df in edited_growth_dfs.items():
         for _, row in growth_df.iterrows():
-            product = PRODUCT_REVERSE_DISPLAY.get(str(row["Product"]).strip())
+            product_label = str(row["Product"]).strip()
+            product = PRODUCT_REVERSE_DISPLAY.get(product_label)
 
             if product in PRODUCTS:
                 values[region][product] = {
@@ -194,7 +211,8 @@ def attrition_df_to_dict(attrition_df):
     values = copy.deepcopy(DEFAULT_ATTRITION)
 
     for _, row in attrition_df.iterrows():
-        product = PRODUCT_REVERSE_DISPLAY.get(str(row["Product"]).strip())
+        product_label = str(row["Product"]).strip()
+        product = PRODUCT_REVERSE_DISPLAY.get(product_label)
 
         if product in PRODUCTS:
             values[product] = float(row["Attr %"])
@@ -214,6 +232,9 @@ def productivity_to_df():
     )
 
 
+# =====================================================
+# GENERAL HELPERS
+# =====================================================
 def add_total_row_and_column(matrix):
     matrix = matrix.copy()
     matrix["Total"] = matrix.sum(axis=1)
@@ -275,7 +296,7 @@ def validate_input_data(df):
     ]
 
     missing_columns = [
-        col for col in required_columns if col not in df.columns
+        column for column in required_columns if column not in df.columns
     ]
 
     if missing_columns:
@@ -312,8 +333,11 @@ def validate_input_data(df):
     if "Year" in df.columns:
         numeric_columns.append("Year")
 
-    for col in numeric_columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    for column in numeric_columns:
+        df[column] = pd.to_numeric(
+            df[column],
+            errors="coerce",
+        )
 
     if df[numeric_columns].isnull().any().any():
         st.error("Some numeric columns contain blank or invalid numeric values.")
@@ -385,7 +409,7 @@ def show_line(data, title):
     )
 
 
-def build_phase1_recommendations(
+def build_functional_inputs(
     total_hiring,
     hiring_intensity_pct,
     peak_year,
@@ -393,167 +417,112 @@ def build_phase1_recommendations(
     product_exec,
     region_exec,
 ):
-    recommendations = []
+    inputs = []
 
-    if total_hiring <= 0:
-        recommendations.append(
-            {
-                "Area": "Capacity Position",
-                "Recommendation": (
-                    "No immediate hiring action is required under the current assumptions. "
-                    "Validate BAU growth, DC growth, and attrition assumptions before finalizing the plan."
-                ),
-                "Owner": "Business / Service Leadership",
-                "Priority": "Medium",
-                "Timeline": "Immediate",
-            }
-        )
+    if total_hiring > 0:
+        top_product_name = product_exec.iloc[0]["Product"]
+        top_product_hiring = int(product_exec.iloc[0]["Hiring_SE"])
 
-        recommendations.append(
-            {
-                "Area": "Assumption Review",
-                "Recommendation": (
-                    "Run sensitivity checks with higher BAU, DC, and attrition scenarios "
-                    "to confirm that the zero-hiring outcome is not due to conservative assumptions."
-                ),
-                "Owner": "Planning Team",
-                "Priority": "High",
-                "Timeline": "Within 1 week",
-            }
-        )
+        top_region_name = region_exec.iloc[0]["Region"]
+        top_region_hiring = int(region_exec.iloc[0]["Hiring_SE"])
+    else:
+        top_product_name = "Not applicable"
+        top_product_hiring = 0
 
-        return recommendations
+        top_region_name = "Not applicable"
+        top_region_hiring = 0
 
-    top_product_name = product_exec.iloc[0]["Product"]
-    top_product_hiring = int(product_exec.iloc[0]["Hiring_SE"])
-    top_region_name = region_exec.iloc[0]["Region"]
-    top_region_hiring = int(region_exec.iloc[0]["Hiring_SE"])
-
-    recommendations.append(
+    inputs.append(
         {
-            "Area": "Hiring Plan",
-            "Recommendation": (
-                f"Initiate Phase-1 hiring planning for {total_hiring} SE across the selected forecast period. "
-                f"Peak hiring pressure is expected in {peak_year} with {peak_hiring} SE."
+            "Function": "HR - Resource Planning",
+            "Planning Input": (
+                f"Prepare workforce plan for {total_hiring} additional SE across the selected forecast period. "
+                f"Peak demand is expected in {peak_year} with {peak_hiring} SE. "
+                "Plan hiring phasing, source mix, replacement backfill, onboarding calendar, and joining lead-time."
             ),
-            "Owner": "HR + Service Leadership",
-            "Priority": "High",
-            "Timeline": "Immediate",
+            "Focus Area": (
+                f"Priority region: {top_region_name} ({top_region_hiring} SE). "
+                f"Priority product: {top_product_name} ({top_product_hiring} SE)."
+            ),
+            "Timeline": "Immediate planning / monthly tracking",
         }
     )
 
-    recommendations.append(
+    inputs.append(
         {
-            "Area": "Product Focus",
-            "Recommendation": (
-                f"Prioritize hiring and capability development for {top_product_name}, "
-                f"which shows the highest product-level hiring requirement of {top_product_hiring} SE."
+            "Function": "Technical Training Team - Competency Enhancement",
+            "Planning Input": (
+                "Create competency enhancement plan aligned to forecasted product and regional demand. "
+                "Build training batches for new hires and existing engineers, including product certification, "
+                "troubleshooting, safety practices, and field readiness."
             ),
-            "Owner": "Product Service Heads",
-            "Priority": "High",
-            "Timeline": "0 - 30 days",
+            "Focus Area": (
+                f"Prioritize {top_product_name} capability building and prepare training capacity before "
+                f"{peak_year} peak demand."
+            ),
+            "Timeline": "0 - 60 days plan, quarterly execution",
         }
     )
 
-    recommendations.append(
+    inputs.append(
         {
-            "Area": "Regional Focus",
-            "Recommendation": (
-                f"Prioritize regional capacity planning for {top_region_name}, "
-                f"which shows the highest regional hiring requirement of {top_region_hiring} SE."
+            "Function": "Operations Leaders - Budget Enhancement",
+            "Planning Input": (
+                "Plan budget enhancement for training, safety PPE, measuring tools, uniforms, branding, "
+                "field kits, and onboarding readiness. Budget should support both new hiring and competency "
+                "uplift of existing manpower."
             ),
-            "Owner": "Regional Service Leaders",
-            "Priority": "High",
-            "Timeline": "0 - 30 days",
-        }
-    )
-
-    recommendations.append(
-        {
-            "Area": "Redeployment Check",
-            "Recommendation": (
-                "Before external hiring, review internal redeployment options across regions and product groups. "
-                "Identify surplus or low-utilization capacity that can be moved to high-demand areas."
+            "Focus Area": (
+                "Include training cost, certification cost, PPE sets, calibrated measuring instruments, "
+                "uniforms, branding material, laptops/mobile tools if applicable, and regional deployment readiness."
             ),
-            "Owner": "Regional Leaders + Workforce Planning",
-            "Priority": "Medium",
-            "Timeline": "0 - 30 days",
-        }
-    )
-
-    recommendations.append(
-        {
-            "Area": "Productivity Lever",
-            "Recommendation": (
-                "Review productivity assumptions such as productive hours, working days, and utilization. "
-                "Productivity improvements can reduce external hiring requirements."
-            ),
-            "Owner": "Operations Excellence",
-            "Priority": "Medium",
-            "Timeline": "30 - 60 days",
+            "Timeline": "Budget cycle / immediate approval for critical gaps",
         }
     )
 
     if hiring_intensity_pct >= 15:
-        recommendations.append(
-            {
-                "Area": "Risk Management",
-                "Recommendation": (
-                    "Hiring intensity is high versus the current base. Prepare a phased hiring plan, "
-                    "onboarding capacity plan, and ramp-up timeline to avoid delivery disruption."
-                ),
-                "Owner": "VP / HR / Delivery Leaders",
-                "Priority": "Critical",
-                "Timeline": "Immediate",
-            }
+        risk_priority = "High"
+        risk_message = (
+            "Hiring intensity is high versus current base. Budget and training capacity should be approved "
+            "early to avoid delayed deployment and service delivery risk."
         )
-
     elif hiring_intensity_pct >= 8:
-        recommendations.append(
-            {
-                "Area": "Risk Management",
-                "Recommendation": (
-                    "Hiring intensity is moderate. Closely monitor attrition and demand conversion "
-                    "to avoid late hiring pressure."
-                ),
-                "Owner": "Service Leadership",
-                "Priority": "High",
-                "Timeline": "Monthly review",
-            }
+        risk_priority = "Medium"
+        risk_message = (
+            "Hiring intensity is moderate. Monthly tracking is required for hiring progress, training completion, "
+            "and budget readiness."
         )
-
     else:
-        recommendations.append(
-            {
-                "Area": "Risk Management",
-                "Recommendation": (
-                    "Hiring intensity is controlled. Continue monitoring demand signals, attrition, "
-                    "and productivity trends."
-                ),
-                "Owner": "Workforce Planning",
-                "Priority": "Medium",
-                "Timeline": "Monthly review",
-            }
+        risk_priority = "Controlled"
+        risk_message = (
+            "Hiring intensity is controlled. Continue monitoring demand, attrition, training pipeline, "
+            "and budget utilization."
         )
 
-    recommendations.append(
+    inputs.append(
         {
-            "Area": "Governance",
-            "Recommendation": (
-                "Set up a monthly workforce review covering actual attrition, hiring progress, "
-                "demand changes, and forecast variance."
+            "Function": "Executive Governance",
+            "Planning Input": risk_message,
+            "Focus Area": (
+                f"Risk priority: {risk_priority}. Review hiring, training, safety readiness, tools availability, "
+                "and budget status in monthly governance."
             ),
-            "Owner": "VP Office + Planning Team",
-            "Priority": "High",
-            "Timeline": "Monthly",
+            "Timeline": "Monthly review",
         }
     )
 
-    return recommendations
+    return inputs
 
 
+# =====================================================
+# SESSION STATE INITIALIZATION
+# =====================================================
 init_state()
 
+
+# =====================================================
+# SIDEBAR FORM
+# =====================================================
 st.sidebar.header("Planning Assumptions")
 st.sidebar.markdown("Edit assumptions and click **Apply Assumptions**.")
 
@@ -706,11 +675,20 @@ if apply_assumptions:
 
     st.sidebar.success("Assumptions applied. Dashboard will refresh.")
 
+
+# =====================================================
+# MAIN PAGE
+# =====================================================
 st.title("AI Enabled Workforce & Capacity Planning")
 st.caption(f"Forecast model version: {MODEL_VERSION}")
-st.info("Upload workforce_input.csv and review workforce prediction for 2027, 2028 and 2029.")
+st.info(
+    "Upload workforce_input.csv and review workforce prediction for 2027, 2028 and 2029."
+)
 
-uploaded_file = st.file_uploader("Upload workforce_input.csv", type=["csv"])
+uploaded_file = st.file_uploader(
+    "Upload workforce_input.csv",
+    type=["csv"],
+)
 
 if uploaded_file is not None:
     current_file_id = f"{uploaded_file.name}_{len(uploaded_file.getvalue())}"
@@ -737,6 +715,10 @@ if st.session_state.input_df is None:
 
 original_df = st.session_state.input_df
 
+
+# =====================================================
+# DASHBOARD FILTERS
+# =====================================================
 st.markdown("### Dashboard Filters")
 
 filter_col1, filter_col2, filter_col3 = st.columns(3)
@@ -807,6 +789,10 @@ if st.session_state.last_filter_signature != filter_signature:
     st.session_state.needs_recalc = True
     st.session_state.last_filter_signature = filter_signature
 
+
+# =====================================================
+# CALCULATION
+# =====================================================
 if st.session_state.needs_recalc or st.session_state.result_df is None:
     try:
         st.session_state.result_df = calculate_workforce(
@@ -829,6 +815,10 @@ if st.session_state.needs_recalc or st.session_state.result_df is None:
 result = st.session_state.result_df.copy()
 result = result[result["Year"].isin(selected_forecast_years)]
 
+
+# =====================================================
+# DASHBOARD SUMMARY
+# =====================================================
 st.subheader("Dashboard Summary")
 
 year_summary = (
@@ -852,20 +842,37 @@ kpi1.metric(
 
 for metric_col, year in zip([kpi2, kpi3, kpi4], FORECAST_YEARS):
     year_row = year_summary[year_summary["Year"] == year]
-    value = int(year_row["Additional_Required"].sum()) if not year_row.empty else 0
-    metric_col.metric(f"{year} Additional Required", value)
+
+    value = (
+        int(year_row["Additional_Required"].sum())
+        if not year_row.empty
+        else 0
+    )
+
+    metric_col.metric(
+        f"{year} Additional Required",
+        value,
+    )
 
 kpi5.metric(
     "Selected Years Total Hiring",
     int(year_summary["Additional_Required"].sum()),
 )
 
+
+# =====================================================
+# VISUAL DASHBOARD
+# =====================================================
 st.markdown("---")
 st.subheader("Visual Dashboard")
 
 trend_df = year_summary.melt(
     id_vars="Year",
-    value_vars=["Available", "Combined_Required", "Additional_Required"],
+    value_vars=[
+        "Available",
+        "Combined_Required",
+        "Additional_Required",
+    ],
     var_name="Metric",
     value_name="Engineers",
 )
@@ -888,10 +895,14 @@ show_line(
 chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
-    show_bar(
+    product_required = (
         result.groupby("Product")["Combined Required Engineers"]
         .sum()
-        .reset_index(),
+        .reset_index()
+    )
+
+    show_bar(
+        product_required,
         "Product",
         "Combined Required Engineers",
         "Selected Years Required SE by Product",
@@ -899,10 +910,14 @@ with chart_col1:
     )
 
 with chart_col2:
-    show_bar(
+    region_required = (
         result.groupby("Region")["Combined Required Engineers"]
         .sum()
-        .reset_index(),
+        .reset_index()
+    )
+
+    show_bar(
+        region_required,
         "Region",
         "Combined Required Engineers",
         "Selected Years Required SE by Region",
@@ -912,10 +927,14 @@ with chart_col2:
 chart_col3, chart_col4 = st.columns(2)
 
 with chart_col3:
-    show_bar(
+    product_hiring = (
         result.groupby("Product")["Combined Additional Required"]
         .sum()
-        .reset_index(),
+        .reset_index()
+    )
+
+    show_bar(
+        product_hiring,
         "Product",
         "Combined Additional Required",
         "Selected Years Additional Requirement by Product",
@@ -923,16 +942,24 @@ with chart_col3:
     )
 
 with chart_col4:
-    show_bar(
+    region_hiring = (
         result.groupby("Region")["Combined Additional Required"]
         .sum()
-        .reset_index(),
+        .reset_index()
+    )
+
+    show_bar(
+        region_hiring,
         "Region",
         "Combined Additional Required",
         "Selected Years Additional Requirement by Region",
         "Region",
     )
 
+
+# =====================================================
+# DETAIL TABS
+# =====================================================
 tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     [
         "Executive Summary",
@@ -946,11 +973,13 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
 )
 
 with tab0:
-    st.subheader("Executive Summary - VP View")
+    st.subheader("Executive Summary - Executive View")
 
     total_existing = int(round(filtered_df["Current_SE"].sum(), 0))
     total_hiring = int(round(year_summary["Additional_Required"].sum(), 0))
-    selected_years_text = ", ".join([str(year) for year in selected_forecast_years])
+    selected_years_text = ", ".join(
+        [str(year) for year in selected_forecast_years]
+    )
 
     final_year = max(selected_forecast_years)
     final_year_row = year_summary[year_summary["Year"] == final_year]
@@ -1137,7 +1166,7 @@ with tab0:
             use_container_width=True,
         )
 
-    st.markdown("### VP Action Notes")
+    st.markdown("### Executive Action Notes")
 
     if total_hiring > 0:
         top_product_name = product_exec.iloc[0]["Product"]
@@ -1150,7 +1179,7 @@ with tab0:
             f"Highest product-level hiring pressure is in **{top_product_name}** "
             f"with **{top_product_hiring} SE**. Highest regional hiring pressure "
             f"is in **{top_region_name}** with **{top_region_hiring} SE**. "
-            f"Recommended VP-level actions: validate growth assumptions with "
+            f"Recommended executive-level actions: validate growth assumptions with "
             f"business leaders, phase hiring by quarter, confirm onboarding "
             f"capacity, and review cross-region redeployment options before "
             f"external hiring commitment."
@@ -1159,21 +1188,21 @@ with tab0:
     else:
         st.success(
             "No additional hiring requirement is projected under the selected "
-            "assumptions. Recommended VP-level action: validate whether growth, "
+            "assumptions. Recommended executive-level action: validate whether growth, "
             "attrition, and DC assumptions are realistic, because zero hiring may "
             "indicate either sufficient capacity or conservative workload assumptions."
         )
 
     st.markdown("---")
-    st.markdown("### Phase-1 Recommendations")
+    st.markdown("### Functional Inputs for Execution Planning")
 
-    phase_col1, phase_col2, phase_col3 = st.columns(3)
+    input_col1, input_col2, input_col3 = st.columns(3)
 
-    phase_col1.metric("Phase-1 Hiring Need", total_hiring)
-    phase_col2.metric("Peak Hiring Year", peak_year)
-    phase_col3.metric("Peak Year Hiring", peak_hiring)
+    input_col1.metric("Total Resource Ask", total_hiring)
+    input_col2.metric("Peak Demand Year", peak_year)
+    input_col3.metric("Peak Year Resource Ask", peak_hiring)
 
-    phase1_recommendations = build_phase1_recommendations(
+    functional_inputs = build_functional_inputs(
         total_hiring=total_hiring,
         hiring_intensity_pct=hiring_intensity_pct,
         peak_year=peak_year,
@@ -1182,26 +1211,35 @@ with tab0:
         region_exec=region_exec,
     )
 
-    phase1_df = pd.DataFrame(phase1_recommendations)
+    functional_input_df = pd.DataFrame(functional_inputs)
 
     st.dataframe(
-        phase1_df,
+        functional_input_df,
         use_container_width=True,
         hide_index=True,
     )
 
-    st.markdown("### Phase-1 Executive Decision Points")
+    st.markdown("### Functional Action Guidance")
 
-    decision_points = [
-        "Approve Phase-1 hiring numbers by region and product.",
-        "Confirm whether hiring should be front-loaded before the peak requirement year.",
-        "Validate whether redeployment can reduce external hiring dependency.",
-        "Review productivity improvement levers before final hiring commitment.",
-        "Agree monthly governance cadence for tracking hiring, attrition, and demand assumptions.",
-    ]
+    st.markdown(
+        "- **HR:** convert forecasted SE requirement into region-wise and product-wise hiring, "
+        "backfill, and onboarding plan."
+    )
 
-    for point in decision_points:
-        st.markdown(f"- {point}")
+    st.markdown(
+        "- **Technical Training Team:** prepare competency enhancement roadmap for product capability, "
+        "certification, troubleshooting, safety practices, and field readiness."
+    )
+
+    st.markdown(
+        "- **Operations Leaders:** plan budget enhancement for training, safety PPE, measuring tools, "
+        "uniforms, branding, field kits, and deployment readiness."
+    )
+
+    st.markdown(
+        "- **Executive Governance:** review monthly progress for hiring, training completion, "
+        "PPE/tools readiness, and budget approvals."
+    )
 
 with tab1:
     st.subheader("Uploaded Input Data")
