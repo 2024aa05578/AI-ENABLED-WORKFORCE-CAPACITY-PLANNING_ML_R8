@@ -99,8 +99,7 @@ DEFAULT_ATTRITION = {
     product: 8.0 for product in PRODUCTS
 }
 
-APP_SCHEMA_VERSION = "v20_functional_inputs_exec_summary"
-
+APP_SCHEMA_VERSION = "v21_corrected_2027_available_capacity"
 
 # =====================================================
 # SESSION INITIALIZATION
@@ -115,6 +114,11 @@ def init_state():
         st.session_state.productive_hours = 7.0
         st.session_state.working_days = 20
         st.session_state.target_utilization = 90.0
+
+        # 2027 correction control
+        # Corrects abnormal 2027 Available Engineers when the model output
+        # is showing attrition/incremental capacity instead of total available base.
+        st.session_state.enable_2027_available_correction = True
 
         st.session_state.input_df = None
         st.session_state.result_df = None
@@ -409,6 +413,94 @@ def show_line(data, title):
     )
 
 
+def apply_2027_available_capacity_correction(result_df, base_df):
+    """
+    Corrects 2027 Available Engineers.
+
+    Problem fixed:
+    2027 Available Engineers may come from the model as an abnormally low value,
+    such as attrition loss or incremental capacity, instead of total available
+    workforce capacity.
+
+    Correct logic:
+    2027 Available Engineers =
+        2026 Current_SE base after product-wise attrition
+
+    Then:
+    Combined Additional Required =
+        MAX(0, Combined Required Engineers - Available Engineers)
+    """
+
+    df = result_df.copy()
+
+    if not st.session_state.enable_2027_available_correction:
+        return df
+
+    if df.empty or base_df.empty:
+        return df
+
+    required_columns = ["Region", "Product", "Current_SE"]
+
+    if any(column not in base_df.columns for column in required_columns):
+        return df
+
+    correction_base = base_df.copy()
+
+    correction_base["Region"] = correction_base["Region"].astype(str).str.strip()
+    correction_base["Product"] = correction_base["Product"].astype(str).str.strip()
+    correction_base["Product"] = correction_base["Product"].replace(PRODUCT_ALIASES)
+
+    correction_base["Current_SE"] = pd.to_numeric(
+        correction_base["Current_SE"],
+        errors="coerce",
+    ).fillna(0)
+
+    correction_base = (
+        correction_base.groupby(["Region", "Product"], as_index=False)
+        .agg(Current_SE=("Current_SE", "sum"))
+    )
+
+    correction_base["Attrition %"] = correction_base["Product"].map(
+        st.session_state.attrition_parameters
+    ).fillna(0)
+
+    correction_base["Corrected 2027 Available Engineers"] = (
+        correction_base["Current_SE"]
+        * (1 - correction_base["Attrition %"] / 100)
+    )
+
+    correction_lookup = correction_base.set_index(
+        ["Region", "Product"]
+    )["Corrected 2027 Available Engineers"].to_dict()
+
+    year_mask = df["Year"] == 2027
+
+    if not year_mask.any():
+        return df
+
+    for index, row in df.loc[year_mask].iterrows():
+        key = (
+            str(row["Region"]).strip(),
+            str(row["Product"]).strip(),
+        )
+
+        corrected_available = correction_lookup.get(key)
+
+        if corrected_available is None:
+            continue
+
+        combined_required = float(row["Combined Required Engineers"])
+
+        df.at[index, "Available Engineers"] = corrected_available
+
+        df.at[index, "Combined Additional Required"] = max(
+            math.ceil(combined_required - corrected_available),
+            0,
+        )
+
+    return df
+
+
 def build_functional_inputs(
     total_hiring,
     hiring_intensity_pct,
@@ -651,6 +743,17 @@ with st.sidebar.form("planning_assumptions_form"):
         key="productivity_data_editor",
     )
 
+    st.subheader("2027 Available Capacity Correction")
+
+    enable_2027_available_correction = st.checkbox(
+        "Correct 2027 Available Engineers from 2026 base after attrition",
+        value=st.session_state.enable_2027_available_correction,
+        help=(
+            "Enable this when 2027 Available Engineers appears as attrition loss "
+            "or incremental capacity instead of total available workforce capacity."
+        ),
+    )
+
     apply_assumptions = st.form_submit_button("Apply Assumptions")
 
 if apply_assumptions:
@@ -671,6 +774,10 @@ if apply_assumptions:
     st.session_state.productive_hours = float(p["Hrs/Day"])
     st.session_state.working_days = int(p["Days/M"])
     st.session_state.target_utilization = float(p["Util %"])
+    st.session_state.enable_2027_available_correction = (
+        enable_2027_available_correction
+    )
+
     st.session_state.needs_recalc = True
 
     st.sidebar.success("Assumptions applied. Dashboard will refresh.")
@@ -813,7 +920,24 @@ if st.session_state.needs_recalc or st.session_state.result_df is None:
         st.stop()
 
 result = st.session_state.result_df.copy()
+
+# Correct abnormal 2027 Available Engineers before KPIs, charts, tables, and download.
+result = apply_2027_available_capacity_correction(
+    result_df=result,
+    base_df=filtered_df,
+)
+
 result = result[result["Year"].isin(selected_forecast_years)]
+
+if st.session_state.enable_2027_available_correction and 2027 in selected_forecast_years:
+    corrected_2027_available_total = (
+        result[result["Year"] == 2027]["Available Engineers"].sum()
+    )
+
+    st.info(
+        f"2027 Available Engineers corrected from 2026 base after attrition. "
+        f"Corrected 2027 available capacity: {int(round(corrected_2027_available_total, 0))} SE."
+    )
 
 
 # =====================================================
