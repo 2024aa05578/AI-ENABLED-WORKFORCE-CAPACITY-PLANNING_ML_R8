@@ -6,7 +6,8 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from workforce_model import calculate_workforce, MODEL_VERSION
+from workforce_model import calculate_workforce
+
 
 st.set_page_config(
     page_title="AI Enabled Workforce & Capacity Planning",
@@ -14,9 +15,96 @@ st.set_page_config(
     layout="wide",
 )
 
+
+UP_ARROW = chr(8593)
+BAU_UP_LABEL = "BAU " + UP_ARROW + "%"
+DC_UP_LABEL = "DC " + UP_ARROW + "%"
+
+
+# =====================================================
+# COMPACT FIXED SIDEBAR WITH COLORS
+# =====================================================
+
+st.markdown(
+    """
+    <style>
+    section[data-testid="stSidebar"] {
+        width: 380px !important;
+        min-width: 380px !important;
+        max-width: 380px !important;
+        background: linear-gradient(180deg, #F8FAFC 0%, #EEF4FA 100%);
+    }
+
+    section[data-testid="stSidebar"] > div {
+        width: 380px !important;
+        min-width: 380px !important;
+        max-width: 380px !important;
+        padding-left: 6px !important;
+        padding-right: 6px !important;
+    }
+
+    div[data-testid="stSidebarContent"] {
+        width: 380px !important;
+        max-width: 380px !important;
+    }
+
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
+        font-size: 12px !important;
+        margin-top: 5px !important;
+        margin-bottom: 3px !important;
+        color: #1F4E79 !important;
+    }
+
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] div {
+        font-size: 9px !important;
+        line-height: 1.1 !important;
+    }
+
+    section[data-testid="stSidebar"] button {
+        font-size: 10px !important;
+        padding-top: 3px !important;
+        padding-bottom: 3px !important;
+        background-color: #1F4E79 !important;
+        color: white !important;
+        border-radius: 6px !important;
+    }
+
+    section[data-testid="stSidebar"] .stAlert {
+        font-size: 9px !important;
+    }
+
+    .region-header {
+        padding: 5px 8px;
+        border-radius: 7px;
+        margin-top: 6px;
+        margin-bottom: 4px;
+        font-weight: 700;
+        font-size: 11px;
+    }
+
+    .sidebar-note {
+        font-size: 9px;
+        color: #475569;
+        padding: 5px 7px;
+        border-radius: 6px;
+        background: #EAF2F8;
+        border-left: 3px solid #1F4E79;
+        margin-bottom: 6px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
 # =====================================================
 # MASTER DATA
 # =====================================================
+
 REGIONS = ["North", "West", "South", "East"]
 
 PRODUCTS = [
@@ -26,8 +114,6 @@ PRODUCTS = [
     "Power System",
     "Industrial Automation",
 ]
-
-FORECAST_YEARS = [2027, 2028, 2029]
 
 PRODUCT_ALIASES = {
     "Power Product": "Power Products",
@@ -51,9 +137,34 @@ PRODUCT_REVERSE_DISPLAY = {
     value: key for key, value in PRODUCT_DISPLAY.items()
 }
 
+REGION_STYLES = {
+    "North": {
+        "bg": "#EAF4FF",
+        "border": "#1F77B4",
+        "text": "#174A7C",
+    },
+    "West": {
+        "bg": "#FFF4E5",
+        "border": "#FF7F0E",
+        "text": "#8A4A00",
+    },
+    "South": {
+        "bg": "#EAF8EF",
+        "border": "#2CA02C",
+        "text": "#1B6B28",
+    },
+    "East": {
+        "bg": "#F3EAFB",
+        "border": "#9467BD",
+        "text": "#573B78",
+    },
+}
+
+
 # =====================================================
 # DEFAULT PARAMETERS
 # =====================================================
+
 DEFAULT_GROWTH_PARAMETERS = {
     "North": {
         "UPS": {"BAU": 20.0, "DC": 10.0},
@@ -85,41 +196,29 @@ DEFAULT_GROWTH_PARAMETERS = {
     },
 }
 
-DEFAULT_GROWTH_FACTORS = {
-    region: {
-        "2028 BAU Factor": 1.0,
-        "2028 DC Factor": 1.0,
-        "2029 BAU Factor": 1.0,
-        "2029 DC Factor": 1.0,
-    }
-    for region in REGIONS
-}
-
 DEFAULT_ATTRITION = {
-    product: 8.0 for product in PRODUCTS
+    "UPS": 8.0,
+    "Cooling": 8.0,
+    "Power Products": 8.0,
+    "Power System": 8.0,
+    "Industrial Automation": 8.0,
 }
 
-APP_SCHEMA_VERSION = "v22_corrected_2027_trend_normalization"
+APP_SCHEMA_VERSION = "v14_exec_summary_filters_colored_sidebar"
 
 
 # =====================================================
 # SESSION INITIALIZATION
 # =====================================================
+
 def init_state():
     if st.session_state.get("schema_version") != APP_SCHEMA_VERSION:
         st.session_state.schema_version = APP_SCHEMA_VERSION
         st.session_state.growth_parameters = copy.deepcopy(DEFAULT_GROWTH_PARAMETERS)
-        st.session_state.growth_factors = copy.deepcopy(DEFAULT_GROWTH_FACTORS)
         st.session_state.attrition_parameters = copy.deepcopy(DEFAULT_ATTRITION)
-
         st.session_state.productive_hours = 7.0
         st.session_state.working_days = 20
         st.session_state.target_utilization = 90.0
-
-        # Correct abnormal 2027 trend where 2027 Additional Required is too high
-        # because 2027 Available Engineers is too low.
-        st.session_state.enable_2027_available_correction = True
-
         st.session_state.input_df = None
         st.session_state.result_df = None
         st.session_state.needs_recalc = False
@@ -128,13 +227,30 @@ def init_state():
 
 
 # =====================================================
-# SIDEBAR HELPERS
+# SIDEBAR DISPLAY HELPERS
 # =====================================================
-def growth_region_to_df(region):
+
+def show_region_header(region):
+    style = REGION_STYLES[region]
+
+    st.markdown(
+        f"""
+        <div class="region-header"
+             style="background:{style['bg']};
+                    border-left:4px solid {style['border']};
+                    color:{style['text']};">
+            {region} Growth
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def growth_region_to_df(growth_parameters, region):
     rows = []
 
     for product in PRODUCTS:
-        params = st.session_state.growth_parameters[region][product]
+        params = growth_parameters[region][product]
 
         rows.append(
             {
@@ -148,7 +264,7 @@ def growth_region_to_df(region):
 
 
 def growth_region_dfs_to_dict(edited_growth_dfs):
-    values = copy.deepcopy(DEFAULT_GROWTH_PARAMETERS)
+    growth_parameters = copy.deepcopy(DEFAULT_GROWTH_PARAMETERS)
 
     for region, growth_df in edited_growth_dfs.items():
         for _, row in growth_df.iterrows():
@@ -156,55 +272,22 @@ def growth_region_dfs_to_dict(edited_growth_dfs):
             product = PRODUCT_REVERSE_DISPLAY.get(product_label)
 
             if product in PRODUCTS:
-                values[region][product] = {
+                growth_parameters[region][product] = {
                     "BAU": float(row["BAU"]),
                     "DC": float(row["DC"]),
                 }
 
-    return values
+    return growth_parameters
 
 
-def growth_factors_to_df():
-    rows = []
-
-    for region in REGIONS:
-        row = {"Region": region}
-        row.update(
-            st.session_state.growth_factors.get(
-                region,
-                DEFAULT_GROWTH_FACTORS[region],
-            )
-        )
-        rows.append(row)
-
-    return pd.DataFrame(rows)
-
-
-def growth_factors_df_to_dict(factor_df):
-    values = copy.deepcopy(DEFAULT_GROWTH_FACTORS)
-
-    for _, row in factor_df.iterrows():
-        region = str(row["Region"]).strip()
-
-        if region in REGIONS:
-            values[region] = {
-                "2028 BAU Factor": float(row["2028 BAU Factor"]),
-                "2028 DC Factor": float(row["2028 DC Factor"]),
-                "2029 BAU Factor": float(row["2029 BAU Factor"]),
-                "2029 DC Factor": float(row["2029 DC Factor"]),
-            }
-
-    return values
-
-
-def attrition_to_df():
+def attrition_dict_to_df(attrition_parameters):
     rows = []
 
     for product in PRODUCTS:
         rows.append(
             {
                 "Product": PRODUCT_DISPLAY[product],
-                "Attr %": float(st.session_state.attrition_parameters[product]),
+                "Attr %": float(attrition_parameters.get(product, 8.0)),
             }
         )
 
@@ -212,16 +295,16 @@ def attrition_to_df():
 
 
 def attrition_df_to_dict(attrition_df):
-    values = copy.deepcopy(DEFAULT_ATTRITION)
+    attrition_parameters = copy.deepcopy(DEFAULT_ATTRITION)
 
     for _, row in attrition_df.iterrows():
         product_label = str(row["Product"]).strip()
         product = PRODUCT_REVERSE_DISPLAY.get(product_label)
 
         if product in PRODUCTS:
-            values[product] = float(row["Attr %"])
+            attrition_parameters[product] = float(row["Attr %"])
 
-    return values
+    return attrition_parameters
 
 
 def productivity_to_df():
@@ -236,9 +319,20 @@ def productivity_to_df():
     )
 
 
+def productivity_df_to_values(productivity_df):
+    row = productivity_df.iloc[0]
+
+    productive_hours = float(row["Hrs/Day"])
+    working_days = int(row["Days/M"])
+    target_utilization = float(row["Util %"])
+
+    return productive_hours, working_days, target_utilization
+
+
 # =====================================================
 # GENERAL HELPERS
 # =====================================================
+
 def add_total_row_and_column(matrix):
     matrix = matrix.copy()
     matrix["Total"] = matrix.sum(axis=1)
@@ -247,6 +341,58 @@ def add_total_row_and_column(matrix):
     total_row.index = ["Total"]
 
     return pd.concat([matrix, total_row])
+
+
+def build_bu_requirement_comparison(df, result):
+    existing_resource = (
+        df.groupby("Product")["Current_SE"]
+        .sum()
+        .reset_index()
+        .rename(columns={"Current_SE": "Existing 2026 SE"})
+    )
+
+    next_year_requirement = (
+        result.groupby("Product")["Combined Required Engineers"]
+        .sum()
+        .reset_index()
+        .rename(columns={"Combined Required Engineers": "Next Year Required SE"})
+    )
+
+    comparison = existing_resource.merge(
+        next_year_requirement,
+        on="Product",
+        how="outer",
+    )
+
+    comparison["Existing 2026 SE"] = comparison["Existing 2026 SE"].fillna(0)
+    comparison["Next Year Required SE"] = comparison["Next Year Required SE"].fillna(0)
+
+    comparison["Gap / Surplus"] = (
+        comparison["Next Year Required SE"] - comparison["Existing 2026 SE"]
+    )
+
+    comparison["Additional Required"] = comparison["Gap / Surplus"].apply(
+        lambda value: max(math.ceil(value), 0)
+    )
+
+    comparison["Existing 2026 SE"] = comparison["Existing 2026 SE"].round(1)
+    comparison["Next Year Required SE"] = comparison["Next Year Required SE"].round(1)
+    comparison["Gap / Surplus"] = comparison["Gap / Surplus"].round(1)
+
+    total_row = pd.DataFrame(
+        {
+            "Product": ["Total"],
+            "Existing 2026 SE": [comparison["Existing 2026 SE"].sum()],
+            "Next Year Required SE": [comparison["Next Year Required SE"].sum()],
+            "Gap / Surplus": [comparison["Gap / Surplus"].sum()],
+            "Additional Required": [comparison["Additional Required"].sum()],
+        }
+    )
+
+    return pd.concat(
+        [comparison, total_row],
+        ignore_index=True,
+    )
 
 
 def safe_read_csv(uploaded_file):
@@ -277,7 +423,8 @@ def safe_read_csv(uploaded_file):
     df.columns = df.columns.str.strip()
 
     unnamed_cols = [
-        col for col in df.columns if str(col).startswith("Unnamed")
+        col for col in df.columns
+        if str(col).startswith("Unnamed")
     ]
 
     if unnamed_cols:
@@ -300,7 +447,8 @@ def validate_input_data(df):
     ]
 
     missing_columns = [
-        column for column in required_columns if column not in df.columns
+        col for col in required_columns
+        if col not in df.columns
     ]
 
     if missing_columns:
@@ -313,8 +461,13 @@ def validate_input_data(df):
     df["Product"] = df["Product"].astype(str).str.strip()
     df["Product"] = df["Product"].replace(PRODUCT_ALIASES)
 
-    invalid_regions = sorted(set(df["Region"].unique()) - set(REGIONS))
-    invalid_products = sorted(set(df["Product"].unique()) - set(PRODUCTS))
+    invalid_regions = sorted(
+        set(df["Region"].unique()) - set(REGIONS)
+    )
+
+    invalid_products = sorted(
+        set(df["Product"].unique()) - set(PRODUCTS)
+    )
 
     if invalid_regions:
         st.error(f"Invalid regions found in uploaded file: {invalid_regions}")
@@ -337,9 +490,9 @@ def validate_input_data(df):
     if "Year" in df.columns:
         numeric_columns.append("Year")
 
-    for column in numeric_columns:
-        df[column] = pd.to_numeric(
-            df[column],
+    for col in numeric_columns:
+        df[col] = pd.to_numeric(
+            df[col],
             errors="coerce",
         )
 
@@ -350,7 +503,7 @@ def validate_input_data(df):
     return df
 
 
-def show_bar(data, x_col, y_col, title, color_col=None):
+def show_bar_chart_with_values(data, x_col, y_col, title, color_col=None):
     if color_col is None:
         color_col = x_col
 
@@ -361,434 +514,149 @@ def show_bar(data, x_col, y_col, title, color_col=None):
         color=color_col,
         text=y_col,
         title=title,
+        color_discrete_sequence=[
+            "#1F77B4",
+            "#FF7F0E",
+            "#2CA02C",
+            "#D62728",
+            "#9467BD",
+            "#8C564B",
+            "#E377C2",
+            "#7F7F7F",
+            "#BCBD22",
+            "#17BECF",
+        ],
     )
 
     fig.update_traces(
-        texttemplate="%{text:.0f}",
+        texttemplate="%{text:.1f}",
         textposition="outside",
         cliponaxis=False,
     )
 
     fig.update_layout(
-        height=420,
+        height=430,
+        title_x=0.05,
         showlegend=False,
-        yaxis_title="Engineers",
+        margin=dict(
+            l=40,
+            r=30,
+            t=70,
+            b=90,
+        ),
         xaxis_title="",
-        plot_bgcolor="white",
-    )
-
-    fig.update_xaxes(tickangle=-20)
-    fig.update_yaxes(rangemode="tozero")
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        config={"displayModeBar": False},
-    )
-
-
-def show_line(data, title):
-    fig = px.line(
-        data,
-        x="Year",
-        y="Engineers",
-        color="Metric",
-        markers=True,
-        title=title,
-    )
-
-    fig.update_layout(
-        height=420,
         yaxis_title="Engineers",
         plot_bgcolor="white",
+        paper_bgcolor="white",
+        font=dict(
+            size=12,
+            color="#243447",
+        ),
     )
 
-    fig.update_xaxes(dtick=1)
-    fig.update_yaxes(rangemode="tozero")
+    fig.update_xaxes(
+        fixedrange=True,
+        tickangle=-20,
+    )
+
+    fig.update_yaxes(
+        fixedrange=True,
+        rangemode="tozero",
+    )
 
     st.plotly_chart(
         fig,
         use_container_width=True,
-        config={"displayModeBar": False},
+        config={
+            "displayModeBar": False,
+            "scrollZoom": False,
+            "staticPlot": False,
+        },
     )
-
-
-def allocate_integer_total(weights, total_value):
-    """
-    Allocates an integer total across rows based on weights.
-    Ensures the allocated values sum exactly to total_value.
-    """
-
-    total_value = int(round(total_value, 0))
-
-    if len(weights) == 0:
-        return []
-
-    if total_value <= 0:
-        return [0 for _ in weights]
-
-    weight_sum = sum(weights)
-
-    if weight_sum <= 0:
-        base = total_value // len(weights)
-        remainder = total_value - base * len(weights)
-        values = [base for _ in weights]
-
-        for i in range(remainder):
-            values[i] += 1
-
-        return values
-
-    raw_values = [(weight / weight_sum) * total_value for weight in weights]
-    floor_values = [math.floor(value) for value in raw_values]
-
-    remainder = total_value - sum(floor_values)
-
-    fractional_order = sorted(
-        range(len(raw_values)),
-        key=lambda index: raw_values[index] - floor_values[index],
-        reverse=True,
-    )
-
-    for index in fractional_order[:remainder]:
-        floor_values[index] += 1
-
-    return floor_values
-
-
-def apply_2027_available_capacity_correction(result_df):
-    """
-    Corrects abnormal 2027 Additional Required.
-
-    Problem:
-    2027 Additional Required is showing very high because 2027 Available Engineers
-    is too low.
-
-    Corrected approach:
-    - Check if 2027 Additional Required is abnormally higher than 2028 and 2029.
-    - If abnormal, correct 2027 Additional Required using the median of 2028 and 2029.
-    - Then recalculate 2027 Available Engineers as:
-
-        Available Engineers =
-            Combined Required Engineers - Corrected Additional Required
-
-    This keeps the red trend aligned across 2027, 2028 and 2029.
-    """
-
-    df = result_df.copy()
-
-    if not st.session_state.enable_2027_available_correction:
-        return df
-
-    if df.empty:
-        return df
-
-    required_columns = [
-        "Year",
-        "Region",
-        "Product",
-        "Available Engineers",
-        "Combined Required Engineers",
-        "Combined Additional Required",
-    ]
-
-    missing_columns = [
-        column for column in required_columns if column not in df.columns
-    ]
-
-    if missing_columns:
-        return df
-
-    year_summary_check = (
-        df.groupby("Year")
-        .agg(
-            Available=("Available Engineers", "sum"),
-            Combined_Required=("Combined Required Engineers", "sum"),
-            Additional_Required=("Combined Additional Required", "sum"),
-        )
-        .reset_index()
-    )
-
-    row_2027 = year_summary_check[year_summary_check["Year"] == 2027]
-
-    if row_2027.empty:
-        return df
-
-    future_rows = year_summary_check[
-        year_summary_check["Year"].isin([2028, 2029])
-    ]
-
-    if future_rows.empty:
-        return df
-
-    current_2027_additional = float(row_2027["Additional_Required"].iloc[0])
-    current_2027_required = float(row_2027["Combined_Required"].iloc[0])
-
-    normal_future_additional = float(
-        future_rows["Additional_Required"].median()
-    )
-
-    if normal_future_additional <= 0:
-        normal_future_additional = float(
-            future_rows["Additional_Required"].mean()
-        )
-
-    if normal_future_additional <= 0:
-        return df
-
-    # Apply correction only when 2027 is clearly abnormal.
-    abnormal_2027 = current_2027_additional > normal_future_additional * 2.0
-
-    if not abnormal_2027:
-        return df
-
-    corrected_2027_additional = int(math.ceil(normal_future_additional))
-
-    year_mask = df["Year"] == 2027
-    year_2027_rows = df.loc[year_mask].copy()
-
-    if year_2027_rows.empty:
-        return df
-
-    required_weights = (
-        year_2027_rows["Combined Required Engineers"]
-        .fillna(0)
-        .astype(float)
-        .tolist()
-    )
-
-    allocated_additional = allocate_integer_total(
-        weights=required_weights,
-        total_value=corrected_2027_additional,
-    )
-
-    for row_index, additional_value in zip(
-        year_2027_rows.index,
-        allocated_additional,
-    ):
-        combined_required = float(
-            df.at[row_index, "Combined Required Engineers"]
-        )
-
-        corrected_available = max(
-            combined_required - additional_value,
-            0,
-        )
-
-        df.at[row_index, "Available Engineers"] = corrected_available
-        df.at[row_index, "Combined Additional Required"] = additional_value
-
-    return df
-
-
-def build_functional_inputs(
-    total_hiring,
-    hiring_intensity_pct,
-    peak_year,
-    peak_hiring,
-    product_exec,
-    region_exec,
-):
-    inputs = []
-
-    if total_hiring > 0:
-        top_product_name = product_exec.iloc[0]["Product"]
-        top_product_hiring = int(product_exec.iloc[0]["Hiring_SE"])
-
-        top_region_name = region_exec.iloc[0]["Region"]
-        top_region_hiring = int(region_exec.iloc[0]["Hiring_SE"])
-    else:
-        top_product_name = "Not applicable"
-        top_product_hiring = 0
-
-        top_region_name = "Not applicable"
-        top_region_hiring = 0
-
-    inputs.append(
-        {
-            "Function": "HR - Resource Planning",
-            "Planning Input": (
-                f"Prepare workforce plan for {total_hiring} additional SE across the selected forecast period. "
-                f"Peak demand is expected in {peak_year} with {peak_hiring} SE. "
-                "Plan hiring phasing, source mix, replacement backfill, onboarding calendar, and joining lead-time."
-            ),
-            "Focus Area": (
-                f"Priority region: {top_region_name} ({top_region_hiring} SE). "
-                f"Priority product: {top_product_name} ({top_product_hiring} SE)."
-            ),
-            "Timeline": "Immediate planning / monthly tracking",
-        }
-    )
-
-    inputs.append(
-        {
-            "Function": "Technical Training Team - Competency Enhancement",
-            "Planning Input": (
-                "Create competency enhancement plan aligned to forecasted product and regional demand. "
-                "Build training batches for new hires and existing engineers, including product certification, "
-                "troubleshooting, safety practices, and field readiness."
-            ),
-            "Focus Area": (
-                f"Prioritize {top_product_name} capability building and prepare training capacity before "
-                f"{peak_year} peak demand."
-            ),
-            "Timeline": "0 - 60 days plan, quarterly execution",
-        }
-    )
-
-    inputs.append(
-        {
-            "Function": "Operations Leaders - Budget Enhancement",
-            "Planning Input": (
-                "Plan budget enhancement for training, safety PPE, measuring tools, uniforms, branding, "
-                "field kits, and onboarding readiness. Budget should support both new hiring and competency "
-                "uplift of existing manpower."
-            ),
-            "Focus Area": (
-                "Include training cost, certification cost, PPE sets, calibrated measuring instruments, "
-                "uniforms, branding material, laptops/mobile tools if applicable, and regional deployment readiness."
-            ),
-            "Timeline": "Budget cycle / immediate approval for critical gaps",
-        }
-    )
-
-    if hiring_intensity_pct >= 15:
-        risk_priority = "High"
-        risk_message = (
-            "Hiring intensity is high versus current base. Budget and training capacity should be approved "
-            "early to avoid delayed deployment and service delivery risk."
-        )
-    elif hiring_intensity_pct >= 8:
-        risk_priority = "Medium"
-        risk_message = (
-            "Hiring intensity is moderate. Monthly tracking is required for hiring progress, training completion, "
-            "and budget readiness."
-        )
-    else:
-        risk_priority = "Controlled"
-        risk_message = (
-            "Hiring intensity is controlled. Continue monitoring demand, attrition, training pipeline, "
-            "and budget utilization."
-        )
-
-    inputs.append(
-        {
-            "Function": "Executive Governance",
-            "Planning Input": risk_message,
-            "Focus Area": (
-                f"Risk priority: {risk_priority}. Review hiring, training, safety readiness, tools availability, "
-                "and budget status in monthly governance."
-            ),
-            "Timeline": "Monthly review",
-        }
-    )
-
-    return inputs
 
 
 # =====================================================
 # SESSION STATE INITIALIZATION
 # =====================================================
+
 init_state()
 
 
 # =====================================================
 # SIDEBAR FORM
 # =====================================================
+
 st.sidebar.header("Planning Assumptions")
-st.sidebar.markdown("Edit assumptions and click **Apply Assumptions**.")
+
+st.sidebar.markdown(
+    """
+    <div class="sidebar-note">
+        Edit assumptions and click Apply. Dashboard refreshes only after applying.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 with st.sidebar.form("planning_assumptions_form"):
-    st.subheader("2027 Region and Product Wise Growth")
+    st.subheader("Region and Product Wise Growth")
 
     edited_growth_dfs = {}
 
     for region in REGIONS:
-        st.markdown(f"**{region} Growth**")
+        show_region_header(region)
 
         edited_growth_dfs[region] = st.data_editor(
-            growth_region_to_df(region),
+            growth_region_to_df(
+                st.session_state.growth_parameters,
+                region,
+            ),
             hide_index=True,
             use_container_width=True,
             disabled=["Product"],
             height=205,
             column_config={
+                "Product": st.column_config.TextColumn(
+                    "Product",
+                    width=112,
+                ),
                 "BAU": st.column_config.NumberColumn(
-                    "BAU ↑%",
+                    BAU_UP_LABEL,
                     min_value=0.0,
                     max_value=100.0,
                     step=1.0,
+                    width=54,
                 ),
                 "DC": st.column_config.NumberColumn(
-                    "DC ↑%",
+                    DC_UP_LABEL,
                     min_value=0.0,
                     max_value=100.0,
                     step=1.0,
+                    width=54,
                 ),
             },
             key=f"growth_data_editor_{region.lower()}",
         )
 
-    st.subheader("2028 and 2029 Regional Growth Multiplication Factors")
-    st.caption(
-        "Factors multiply the previous year's BAU/DC growth. "
-        "Valid range: 0.1x to 10.0x."
-    )
-
-    edited_growth_factors_df = st.data_editor(
-        growth_factors_to_df(),
-        hide_index=True,
-        use_container_width=True,
-        disabled=["Region"],
-        height=180,
-        column_config={
-            "2028 BAU Factor": st.column_config.NumberColumn(
-                "2028 BAU x",
-                min_value=0.1,
-                max_value=10.0,
-                step=0.1,
-                format="%.1f",
-            ),
-            "2028 DC Factor": st.column_config.NumberColumn(
-                "2028 DC x",
-                min_value=0.1,
-                max_value=10.0,
-                step=0.1,
-                format="%.1f",
-            ),
-            "2029 BAU Factor": st.column_config.NumberColumn(
-                "2029 BAU x",
-                min_value=0.1,
-                max_value=10.0,
-                step=0.1,
-                format="%.1f",
-            ),
-            "2029 DC Factor": st.column_config.NumberColumn(
-                "2029 DC x",
-                min_value=0.1,
-                max_value=10.0,
-                step=0.1,
-                format="%.1f",
-            ),
-        },
-        key="growth_factors_data_editor",
-    )
-
     st.subheader("BU Wise Attrition")
 
     edited_attrition_df = st.data_editor(
-        attrition_to_df(),
+        attrition_dict_to_df(st.session_state.attrition_parameters),
         hide_index=True,
         use_container_width=True,
         disabled=["Product"],
         height=210,
         column_config={
+            "Product": st.column_config.TextColumn(
+                "Product",
+                width=118,
+            ),
             "Attr %": st.column_config.NumberColumn(
                 "Attr %",
                 min_value=0.0,
                 max_value=30.0,
                 step=0.5,
-            )
+                width=58,
+            ),
         },
         key="attrition_data_editor",
     )
@@ -806,32 +674,24 @@ with st.sidebar.form("planning_assumptions_form"):
                 min_value=1.0,
                 max_value=24.0,
                 step=0.5,
+                width=64,
             ),
             "Days/M": st.column_config.NumberColumn(
                 "Days/M",
                 min_value=1,
                 max_value=31,
                 step=1,
+                width=58,
             ),
             "Util %": st.column_config.NumberColumn(
                 "Util %",
                 min_value=1.0,
                 max_value=100.0,
                 step=1.0,
+                width=58,
             ),
         },
         key="productivity_data_editor",
-    )
-
-    st.subheader("2027 Trend Correction")
-
-    enable_2027_available_correction = st.checkbox(
-        "Correct abnormal 2027 Additional Required trend",
-        value=st.session_state.enable_2027_available_correction,
-        help=(
-            "Enable this when 2027 Additional Required is abnormally higher than "
-            "2028 and 2029 because 2027 Available Engineers is too low."
-        ),
     )
 
     apply_assumptions = st.form_submit_button("Apply Assumptions")
@@ -842,23 +702,17 @@ if apply_assumptions:
         edited_growth_dfs
     )
 
-    st.session_state.growth_factors = growth_factors_df_to_dict(
-        edited_growth_factors_df
-    )
-
     st.session_state.attrition_parameters = attrition_df_to_dict(
         edited_attrition_df
     )
 
-    p = edited_productivity_df.iloc[0]
-
-    st.session_state.productive_hours = float(p["Hrs/Day"])
-    st.session_state.working_days = int(p["Days/M"])
-    st.session_state.target_utilization = float(p["Util %"])
-    st.session_state.enable_2027_available_correction = (
-        enable_2027_available_correction
+    productive_hours, working_days, target_utilization = productivity_df_to_values(
+        edited_productivity_df
     )
 
+    st.session_state.productive_hours = productive_hours
+    st.session_state.working_days = working_days
+    st.session_state.target_utilization = target_utilization
     st.session_state.needs_recalc = True
 
     st.sidebar.success("Assumptions applied. Dashboard will refresh.")
@@ -867,10 +721,12 @@ if apply_assumptions:
 # =====================================================
 # MAIN PAGE
 # =====================================================
+
 st.title("AI Enabled Workforce & Capacity Planning")
-st.caption(f"Forecast model version: {MODEL_VERSION}")
+
 st.info(
-    "Upload workforce_input.csv and review workforce prediction for 2027, 2028 and 2029."
+    "Upload workforce_input.csv, update assumptions in the sidebar, click Apply Assumptions, "
+    "and review existing 2026 resources vs predicted next year requirement."
 )
 
 uploaded_file = st.file_uploader(
@@ -883,13 +739,10 @@ if uploaded_file is not None:
 
     if current_file_id != st.session_state.uploaded_file_id:
         try:
-            st.session_state.input_df = validate_input_data(
-                safe_read_csv(uploaded_file)
-            )
-
+            raw_df = safe_read_csv(uploaded_file)
+            st.session_state.input_df = validate_input_data(raw_df)
             st.session_state.uploaded_file_id = current_file_id
             st.session_state.needs_recalc = True
-
             st.success("CSV uploaded successfully.")
 
         except Exception as error:
@@ -897,9 +750,11 @@ if uploaded_file is not None:
             st.exception(error)
             st.stop()
 
+
 if st.session_state.input_df is None:
     st.warning("Please upload workforce_input.csv to start workforce planning.")
     st.stop()
+
 
 original_df = st.session_state.input_df
 
@@ -907,15 +762,16 @@ original_df = st.session_state.input_df
 # =====================================================
 # DASHBOARD FILTERS
 # =====================================================
+
 st.markdown("### Dashboard Filters")
 
-filter_col1, filter_col2, filter_col3 = st.columns(3)
+filter_col1, filter_col2 = st.columns(2)
 
 filtered_df = original_df.copy()
 
 with filter_col1:
     if "Year" in filtered_df.columns:
-        base_years = (
+        available_years = (
             filtered_df["Year"]
             .dropna()
             .astype(int)
@@ -924,22 +780,23 @@ with filter_col1:
             .tolist()
         )
 
-        selected_base_years = st.multiselect(
-            "Select Base Year",
-            options=base_years,
-            default=base_years,
+        selected_years = st.multiselect(
+            "Select Year",
+            options=available_years,
+            default=available_years,
         )
 
         filtered_df = filtered_df[
-            filtered_df["Year"].astype(int).isin(selected_base_years)
+            filtered_df["Year"].astype(int).isin(selected_years)
         ]
 
     else:
-        selected_base_years = ["All"]
+        selected_years = ["All"]
 
 with filter_col2:
     available_regions = [
-        region for region in REGIONS if region in filtered_df["Region"].unique()
+        region for region in REGIONS
+        if region in filtered_df["Region"].unique()
     ]
 
     selected_regions = st.multiselect(
@@ -952,25 +809,17 @@ with filter_col2:
         filtered_df["Region"].isin(selected_regions)
     ]
 
-with filter_col3:
-    selected_forecast_years = st.multiselect(
-        "Select Forecast Year",
-        options=FORECAST_YEARS,
-        default=FORECAST_YEARS,
-    )
-
 if filtered_df.empty:
-    st.warning("No data available for selected Base Year / Region filter.")
+    st.warning("No data available for selected Year / Region filter.")
     st.stop()
 
-if not selected_forecast_years:
-    st.warning("Please select at least one forecast year.")
-    st.stop()
+
+df = filtered_df
 
 filter_signature = (
-    tuple(selected_base_years),
+    tuple(selected_years),
     tuple(selected_regions),
-    int(len(filtered_df)),
+    int(len(df)),
 )
 
 if st.session_state.last_filter_signature != filter_signature:
@@ -979,20 +828,21 @@ if st.session_state.last_filter_signature != filter_signature:
 
 
 # =====================================================
-# CALCULATION
+# CALCULATE WORKFORCE ONLY WHEN NEEDED
 # =====================================================
+
 if st.session_state.needs_recalc or st.session_state.result_df is None:
     try:
-        st.session_state.result_df = calculate_workforce(
-            df=filtered_df,
+        result = calculate_workforce(
+            df=df,
             growth_parameters=st.session_state.growth_parameters,
-            growth_factors=st.session_state.growth_factors,
             attrition_parameters=st.session_state.attrition_parameters,
             productive_hours=st.session_state.productive_hours,
             working_days=st.session_state.working_days,
             target_utilization=st.session_state.target_utilization,
         )
 
+        st.session_state.result_df = result
         st.session_state.needs_recalc = False
 
     except Exception as error:
@@ -1000,114 +850,99 @@ if st.session_state.needs_recalc or st.session_state.result_df is None:
         st.exception(error)
         st.stop()
 
-result = st.session_state.result_df.copy()
+else:
+    result = st.session_state.result_df
 
-# Correct abnormal 2027 trend before KPIs, charts, tables, executive summary, and download.
-result = apply_2027_available_capacity_correction(result_df=result)
 
-result = result[result["Year"].isin(selected_forecast_years)]
+required_result_columns = [
+    "Available Engineers",
+    "BAU Required Engineers",
+    "DC Incremental Engineers",
+    "Combined Required Engineers",
+    "Combined Additional Required",
+]
 
-if (
-    st.session_state.enable_2027_available_correction
-    and 2027 in selected_forecast_years
-):
-    corrected_2027_row = (
-        result[result["Year"] == 2027]
-        .agg(
-            {
-                "Available Engineers": "sum",
-                "Combined Required Engineers": "sum",
-                "Combined Additional Required": "sum",
-            }
-        )
+missing_result_columns = [
+    col for col in required_result_columns
+    if col not in result.columns
+]
+
+if missing_result_columns:
+    st.error(
+        "workforce_model.py is not updated. Missing result columns: "
+        + str(missing_result_columns)
     )
-
-    st.info(
-        f"2027 trend correction applied. "
-        f"Available Engineers: "
-        f"{int(round(corrected_2027_row['Available Engineers'], 0))} SE, "
-        f"Combined Required Engineers: "
-        f"{int(round(corrected_2027_row['Combined Required Engineers'], 0))} SE, "
-        f"Additional Required: "
-        f"{int(round(corrected_2027_row['Combined Additional Required'], 0))} SE."
-    )
+    st.stop()
 
 
 # =====================================================
 # DASHBOARD SUMMARY
 # =====================================================
+
 st.subheader("Dashboard Summary")
 
-year_summary = (
-    result.groupby("Year")
-    .agg(
-        Available=("Available Engineers", "sum"),
-        BAU_Required=("BAU Required Engineers", "sum"),
-        DC_Incremental=("DC Incremental Engineers", "sum"),
-        Combined_Required=("Combined Required Engineers", "sum"),
-        Additional_Required=("Combined Additional Required", "sum"),
-    )
-    .reset_index()
-)
+total_current = df["Current_SE"].sum()
+total_available = round(result["Available Engineers"].sum(), 1)
+total_bau_required = round(result["BAU Required Engineers"].sum(), 1)
+total_dc_required = round(result["DC Incremental Engineers"].sum(), 1)
+total_combined_required = round(result["Combined Required Engineers"].sum(), 1)
+total_combined_hiring = int(result["Combined Additional Required"].sum())
 
-kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
 
-kpi1.metric(
-    "Existing 2026 SE",
-    int(round(filtered_df["Current_SE"].sum(), 0)),
-)
-
-for metric_col, year in zip([kpi2, kpi3, kpi4], FORECAST_YEARS):
-    year_row = year_summary[year_summary["Year"] == year]
-
-    value = (
-        int(year_row["Additional_Required"].sum())
-        if not year_row.empty
-        else 0
-    )
-
-    metric_col.metric(
-        f"{year} Additional Required",
-        value,
-    )
-
-kpi5.metric(
-    "Selected Years Total Hiring",
-    int(year_summary["Additional_Required"].sum()),
-)
+kpi1.metric("Existing 2026 SE", total_current)
+kpi2.metric("After Attrition", total_available)
+kpi3.metric("BAU Required SE", total_bau_required)
+kpi4.metric("DC Addl. SE", total_dc_required)
+kpi5.metric("Next Year Required SE", total_combined_required)
+kpi6.metric("Additional Required", total_combined_hiring)
 
 
 # =====================================================
 # VISUAL DASHBOARD
 # =====================================================
+
 st.markdown("---")
 st.subheader("Visual Dashboard")
 
-trend_df = year_summary.melt(
-    id_vars="Year",
-    value_vars=[
-        "Available",
-        "Combined_Required",
-        "Additional_Required",
-    ],
-    var_name="Metric",
-    value_name="Engineers",
-)
+st.markdown("### Base Line Dashboard")
 
-trend_df["Metric"] = trend_df["Metric"].replace(
-    {
-        "Available": "Available Engineers",
-        "Combined_Required": "Combined Required Engineers",
-        "Additional_Required": "Additional Required",
-    }
-)
+baseline_col1, baseline_col2 = st.columns(2)
 
-trend_df["Engineers"] = trend_df["Engineers"].round(0)
+with baseline_col1:
+    baseline_product_resource = (
+        df.groupby("Product")["Current_SE"]
+        .sum()
+        .reset_index()
+        .rename(columns={"Current_SE": "Existing 2026 SE"})
+    )
 
-show_line(
-    trend_df,
-    "Three-Year Workforce Forecast Trend",
-)
+    show_bar_chart_with_values(
+        baseline_product_resource,
+        "Product",
+        "Existing 2026 SE",
+        "Base Line Existing Resource by Product",
+        "Product",
+    )
+
+with baseline_col2:
+    baseline_region_resource = (
+        df.groupby("Region")["Current_SE"]
+        .sum()
+        .reset_index()
+        .rename(columns={"Current_SE": "Existing 2026 SE"})
+    )
+
+    show_bar_chart_with_values(
+        baseline_region_resource,
+        "Region",
+        "Existing 2026 SE",
+        "Base Line Existing Resource by Region",
+        "Region",
+    )
+
+
+st.markdown("### Forecast Dashboard")
 
 chart_col1, chart_col2 = st.columns(2)
 
@@ -1118,11 +953,11 @@ with chart_col1:
         .reset_index()
     )
 
-    show_bar(
+    show_bar_chart_with_values(
         product_required,
         "Product",
         "Combined Required Engineers",
-        "Selected Years Required SE by Product",
+        "Next Year Required SE by Product",
         "Product",
     )
 
@@ -1133,11 +968,11 @@ with chart_col2:
         .reset_index()
     )
 
-    show_bar(
+    show_bar_chart_with_values(
         region_required,
         "Region",
         "Combined Required Engineers",
-        "Selected Years Required SE by Region",
+        "Next Year Required SE by Region",
         "Region",
     )
 
@@ -1150,11 +985,11 @@ with chart_col3:
         .reset_index()
     )
 
-    show_bar(
+    show_bar_chart_with_values(
         product_hiring,
         "Product",
         "Combined Additional Required",
-        "Selected Years Additional Requirement by Product",
+        "Additional Requirement by Product",
         "Product",
     )
 
@@ -1165,7 +1000,300 @@ with chart_col4:
         .reset_index()
     )
 
-    show_bar(
+    show_bar_chart_with_values(
         region_hiring,
         "Region",
-        "Combined Additional Required
+        "Combined Additional Required",
+        "Additional Requirement by Region",
+        "Region",
+    )
+
+
+# =====================================================
+# DETAIL TABS
+# =====================================================
+
+tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    [
+        "Executive Summary",
+        "Input Data",
+        "Full Results",
+        "BU Requirement Comparison",
+        "DC and Combined",
+        "Download",
+    ]
+)
+
+
+with tab0:
+    st.subheader("Executive Summary")
+
+    selected_year_text = (
+        ", ".join([str(year) for year in selected_years])
+        if selected_years
+        else "All"
+    )
+
+    selected_region_text = (
+        ", ".join(selected_regions)
+        if selected_regions
+        else "All"
+    )
+
+    summary_total_current = round(df["Current_SE"].sum(), 1)
+    summary_available = round(result["Available Engineers"].sum(), 1)
+    summary_bau_required = round(result["BAU Required Engineers"].sum(), 1)
+    summary_dc_additional = round(result["DC Incremental Engineers"].sum(), 1)
+    summary_next_year_required = round(result["Combined Required Engineers"].sum(), 1)
+    summary_additional_required = int(result["Combined Additional Required"].sum())
+
+    summary_col1, summary_col2, summary_col3 = st.columns(3)
+
+    with summary_col1:
+        st.metric("Existing 2026 SE", summary_total_current)
+
+    with summary_col2:
+        st.metric("Next Year Required SE", summary_next_year_required)
+
+    with summary_col3:
+        st.metric("Additional Required", summary_additional_required)
+
+    st.markdown("---")
+
+    st.markdown(
+        f"""
+        ### Planning View
+
+        The current dashboard is filtered for **Year: {selected_year_text}** and
+        **Region: {selected_region_text}**.
+
+        Based on the selected data, the current resource base is **{summary_total_current} SE**.
+        After applying attrition assumptions, the available resource is estimated at
+        **{summary_available} SE**.
+
+        The forecasted BAU requirement is **{summary_bau_required} SE**.
+        The Data Center / growth-driven incremental requirement is **{summary_dc_additional} SE**.
+        The combined next year requirement is **{summary_next_year_required} SE**.
+
+        Therefore, the estimated additional hiring requirement is
+        **{summary_additional_required} SE**.
+        """
+    )
+
+    st.markdown("---")
+
+    exec_col1, exec_col2 = st.columns(2)
+
+    with exec_col1:
+        st.markdown("### Product Level Requirement")
+
+        product_existing = (
+            df.groupby("Product")["Current_SE"]
+            .sum()
+            .reset_index()
+            .rename(columns={"Current_SE": "Existing 2026 SE"})
+        )
+
+        product_required_summary = (
+            result.groupby("Product")["Combined Required Engineers"]
+            .sum()
+            .reset_index()
+            .rename(columns={"Combined Required Engineers": "Next Year Required SE"})
+        )
+
+        product_hiring_summary = (
+            result.groupby("Product")["Combined Additional Required"]
+            .sum()
+            .reset_index()
+            .rename(columns={"Combined Additional Required": "Additional Required"})
+        )
+
+        product_summary = (
+            product_existing
+            .merge(product_required_summary, on="Product", how="outer")
+            .merge(product_hiring_summary, on="Product", how="outer")
+            .fillna(0)
+        )
+
+        product_summary["Existing 2026 SE"] = product_summary[
+            "Existing 2026 SE"
+        ].round(1)
+
+        product_summary["Next Year Required SE"] = product_summary[
+            "Next Year Required SE"
+        ].round(1)
+
+        product_summary["Additional Required"] = product_summary[
+            "Additional Required"
+        ].astype(int)
+
+        st.dataframe(
+            product_summary,
+            use_container_width=True,
+        )
+
+    with exec_col2:
+        st.markdown("### Region Level Requirement")
+
+        region_existing = (
+            df.groupby("Region")["Current_SE"]
+            .sum()
+            .reset_index()
+            .rename(columns={"Current_SE": "Existing 2026 SE"})
+        )
+
+        region_required_summary = (
+            result.groupby("Region")["Combined Required Engineers"]
+            .sum()
+            .reset_index()
+            .rename(columns={"Combined Required Engineers": "Next Year Required SE"})
+        )
+
+        region_hiring_summary = (
+            result.groupby("Region")["Combined Additional Required"]
+            .sum()
+            .reset_index()
+            .rename(columns={"Combined Additional Required": "Additional Required"})
+        )
+
+        region_summary = (
+            region_existing
+            .merge(region_required_summary, on="Region", how="outer")
+            .merge(region_hiring_summary, on="Region", how="outer")
+            .fillna(0)
+        )
+
+        region_summary["Existing 2026 SE"] = region_summary[
+            "Existing 2026 SE"
+        ].round(1)
+
+        region_summary["Next Year Required SE"] = region_summary[
+            "Next Year Required SE"
+        ].round(1)
+
+        region_summary["Additional Required"] = region_summary[
+            "Additional Required"
+        ].astype(int)
+
+        st.dataframe(
+            region_summary,
+            use_container_width=True,
+        )
+
+    st.markdown("---")
+
+    if summary_additional_required > 0:
+        top_product = (
+            product_summary.sort_values(
+                by="Additional Required",
+                ascending=False,
+            )
+            .iloc[0]
+        )
+
+        top_region = (
+            region_summary.sort_values(
+                by="Additional Required",
+                ascending=False,
+            )
+            .iloc[0]
+        )
+
+        st.warning(
+            f"Highest additional requirement is in **{top_product['Product']}** "
+            f"with **{int(top_product['Additional Required'])} SE**, and region-wise "
+            f"highest requirement is in **{top_region['Region']}** with "
+            f"**{int(top_region['Additional Required'])} SE**."
+        )
+    else:
+        st.success(
+            "No additional hiring requirement is currently projected for the selected filters."
+        )
+
+
+with tab1:
+    st.subheader("Uploaded Input Data")
+    st.dataframe(df, use_container_width=True)
+
+
+with tab2:
+    st.subheader("Workforce Planning Results")
+    st.dataframe(result, use_container_width=True)
+
+
+with tab3:
+    st.subheader("BU Requirement Comparison")
+
+    st.info(
+        "This table compares existing 2026 resources with predicted next year requirement."
+    )
+
+    bu_comparison = build_bu_requirement_comparison(
+        df=df,
+        result=result,
+    )
+
+    st.dataframe(
+        bu_comparison,
+        use_container_width=True,
+    )
+
+
+with tab4:
+    st.subheader("DC Addition Requirement Table")
+
+    dc_table = result.pivot_table(
+        values="DC Incremental Engineers",
+        index="Product",
+        columns="Region",
+        fill_value=0,
+        aggfunc="sum",
+    )
+
+    st.dataframe(
+        add_total_row_and_column(dc_table).round(1),
+        use_container_width=True,
+    )
+
+    st.subheader("Combined BAU + DC Requirement Table")
+
+    combined_table = result.pivot_table(
+        values="Combined Required Engineers",
+        index="Product",
+        columns="Region",
+        fill_value=0,
+        aggfunc="sum",
+    )
+
+    st.dataframe(
+        add_total_row_and_column(combined_table).round(1),
+        use_container_width=True,
+    )
+
+    st.subheader("Combined Hiring Requirement Table")
+
+    hiring_table = result.pivot_table(
+        values="Combined Additional Required",
+        index="Product",
+        columns="Region",
+        fill_value=0,
+        aggfunc="sum",
+    )
+
+    st.dataframe(
+        add_total_row_and_column(hiring_table).round(1),
+        use_container_width=True,
+    )
+
+
+with tab5:
+    st.subheader("Download Output")
+
+    csv_output = result.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        label="Download Workforce Planning Output",
+        data=csv_output,
+        file_name="workforce_planning_output.csv",
+        mime="text/csv",
+    )
