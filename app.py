@@ -2,16 +2,113 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="SE Workforce Forecast - Leadership View", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="SE Workforce Forecast - Leadership View",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 st.markdown('''
 <style>
-section[data-testid="stSidebar"]{background:linear-gradient(180deg,#f2f6ff,#eefaf3,#fff8ec);border-right:1px solid #d8e1ef}
-.title{font-size:30px;font-weight:800;color:#252a34}.sub{font-size:14px;color:#687386;margin-bottom:18px}.hdr{font-size:23px;font-weight:800;color:#2c3140;margin-top:22px;margin-bottom:10px}
-.region{background:white;border-radius:12px;padding:12px;margin:14px 0 8px;border:1px solid #e3e9f5;box-shadow:0 3px 12px rgba(33,48,90,.08)}.north{border-left:7px solid #4f7cff}.west{border-left:7px solid #ff9f43}.south{border-left:7px solid #20c997}.east{border-left:7px solid #a066ff}
-.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:12px 0 25px}.kpi{background:white;border-radius:16px;padding:20px;box-shadow:0 5px 18px rgba(30,45,90,.09);border:1px solid #edf0f7}.blue{border-top:7px solid #4f7cff}.purple{border-top:7px solid #8e5cff}.orange{border-top:7px solid #ff9f43}.kpi-label{font-size:13px;color:#687386;font-weight:700}.kpi-value{font-size:36px;font-weight:850;color:#242936}
-.callout{background:linear-gradient(135deg,#eef4ff,#f8f0ff,#fff8ec);border-left:9px solid #4f7cff;border-radius:18px;padding:22px 26px;margin:14px 0 25px;box-shadow:0 6px 22px rgba(41,65,120,.10)}.callout li{margin-bottom:9px;line-height:1.55}.hi{font-weight:850;color:#1f5eff}.warn{font-weight:850;color:#d97706}.ok{font-weight:850;color:#0f9f6e}
-.strip{background:#f7f9fc;border:1px solid #e7ecf5;border-radius:12px;padding:13px;margin-bottom:16px;color:#3c4658}div.stButton>button{background:linear-gradient(90deg,#4f7cff,#20c997);color:white;border:none;border-radius:10px;font-weight:800;width:100%}
+section[data-testid="stSidebar"]{
+    background:linear-gradient(180deg,#f2f6ff,#eefaf3,#fff8ec);
+    border-right:1px solid #d8e1ef
+}
+.title{
+    font-size:30px;
+    font-weight:800;
+    color:#252a34
+}
+.sub{
+    font-size:14px;
+    color:#687386;
+    margin-bottom:18px
+}
+.hdr{
+    font-size:23px;
+    font-weight:800;
+    color:#2c3140;
+    margin-top:22px;
+    margin-bottom:10px
+}
+.region{
+    background:white;
+    border-radius:12px;
+    padding:12px;
+    margin:14px 0 8px;
+    border:1px solid #e3e9f5;
+    box-shadow:0 3px 12px rgba(33,48,90,.08)
+}
+.north{border-left:7px solid #4f7cff}
+.west{border-left:7px solid #ff9f43}
+.south{border-left:7px solid #20c997}
+.east{border-left:7px solid #a066ff}
+.kpis{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:18px;
+    margin:12px 0 25px
+}
+.kpi{
+    background:white;
+    border-radius:16px;
+    padding:20px;
+    box-shadow:0 5px 18px rgba(30,45,90,.09);
+    border:1px solid #edf0f7
+}
+.blue{border-top:7px solid #4f7cff}
+.purple{border-top:7px solid #8e5cff}
+.orange{border-top:7px solid #ff9f43}
+.kpi-label{
+    font-size:13px;
+    color:#687386;
+    font-weight:700
+}
+.kpi-value{
+    font-size:36px;
+    font-weight:850;
+    color:#242936
+}
+.callout{
+    background:linear-gradient(135deg,#eef4ff,#f8f0ff,#fff8ec);
+    border-left:9px solid #4f7cff;
+    border-radius:18px;
+    padding:22px 26px;
+    margin:14px 0 25px;
+    box-shadow:0 6px 22px rgba(41,65,120,.10)
+}
+.callout li{
+    margin-bottom:9px;
+    line-height:1.55
+}
+.hi{
+    font-weight:850;
+    color:#1f5eff
+}
+.warn{
+    font-weight:850;
+    color:#d97706
+}
+.ok{
+    font-weight:850;
+    color:#0f9f6e
+}
+.strip{
+    background:#f7f9fc;
+    border:1px solid #e7ecf5;
+    border-radius:12px;
+    padding:13px;
+    margin-bottom:16px;
+    color:#3c4658
+}
+div.stButton>button{
+    background:linear-gradient(90deg,#4f7cff,#20c997);
+    color:white;
+    border:none;
+    border-radius:10px;
+    font-weight:800;
+    width:100%
+}
 </style>
 ''', unsafe_allow_html=True)
 
@@ -74,17 +171,17 @@ DEFAULT_DC = {
 }
 
 
-def num(x, default=0.0):
+def num(value, default=0.0):
     try:
-        if x is None or x == "":
+        if value is None or value == "":
             return default
-        return float(x)
+        return float(value)
     except Exception:
         return default
 
 
-def whole(x):
-    return int(round(num(x, 0)))
+def whole(value):
+    return int(round(num(value, 0)))
 
 
 def growth_template(region):
@@ -129,13 +226,13 @@ def load_csv(file):
 
 
 def to_excel(sheets):
-    out = BytesIO()
+    output = BytesIO()
 
-    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
         for name, df in sheets.items():
             df.to_excel(writer, sheet_name=name[:31], index=False)
 
-    return out.getvalue()
+    return output.getvalue()
 
 
 def run_model(base_df, growth_inputs, attrition_inputs, selected_years):
@@ -160,8 +257,15 @@ def run_model(base_df, growth_inputs, attrition_inputs, selected_years):
                 bau_growth = 0.0
                 dc_growth = 0.0
             else:
-                bau_growth = num(product_growth_row["BAU %"].iloc[0]) if "BAU %" in product_growth_row.columns else 0.0
-                dc_growth = num(product_growth_row["DC %"].iloc[0]) if "DC %" in product_growth_row.columns else 0.0
+                if "BAU %" in product_growth_row.columns:
+                    bau_growth = num(product_growth_row["BAU %"].iloc[0])
+                else:
+                    bau_growth = 0.0
+
+                if "DC %" in product_growth_row.columns:
+                    dc_growth = num(product_growth_row["DC %"].iloc[0])
+                else:
+                    dc_growth = 0.0
 
             attrition = num(attrition_inputs.get(year, 0))
 
