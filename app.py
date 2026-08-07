@@ -1,775 +1,759 @@
-import copy
-import math
-from io import StringIO
+# ============================================================
+# Forecast Model Version: v17_headcount_based_forecast
+# Full Replacement App
+#
+# Modification Applied:
+# - Removed VP wording
+# - Kept Leadership View only
+# - Leadership Readout converted to bullet points
+# - Colorful left planning pane
+# - Colorful leadership callout
+# - Full workforce model included
+# ============================================================
 
-import pandas as pd
-import plotly.express as px
 import streamlit as st
+import pandas as pd
+import numpy as np
+from io import BytesIO
 
-from workforce_model import calculate_workforce, MODEL_VERSION
+
+# ============================================================
+# Streamlit Page Config
+# ============================================================
 
 st.set_page_config(
-    page_title="AI Enabled Workforce & Capacity Planning",
-    page_icon="🚀",
+    page_title="SE Workforce Forecast - Leadership View",
+    page_icon="📊",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-REGIONS = ["North", "West", "South", "East"]
 
-PRODUCTS = [
-    "UPS",
-    "Cooling",
-    "Power Products",
-    "Power System",
-    "Industrial Automation",
-]
+# ============================================================
+# Global Styling
+# ============================================================
 
+st.markdown(
+    """
+    <style>
+        .stApp {
+            background-color: #ffffff;
+        }
+
+        /* Sidebar colorful left pane */
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #f2f6ff 0%, #eefaf3 52%, #fff8ec 100%);
+            border-right: 1px solid #d8e1ef;
+        }
+
+        section[data-testid="stSidebar"] h1,
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h3,
+        section[data-testid="stSidebar"] h4,
+        section[data-testid="stSidebar"] p,
+        section[data-testid="stSidebar"] label {
+            color: #263142;
+        }
+
+        .left-pane-heading {
+            font-size: 19px;
+            font-weight: 800;
+            color: #222b45;
+            margin-bottom: 4px;
+        }
+
+        .left-pane-caption {
+            font-size: 13px;
+            color: #5d6678;
+            margin-bottom: 16px;
+        }
+
+        .region-card {
+            background: #ffffff;
+            border-radius: 14px;
+            padding: 13px 14px;
+            margin-top: 16px;
+            margin-bottom: 10px;
+            box-shadow: 0 3px 14px rgba(33, 48, 90, 0.08);
+            border: 1px solid #e3e9f5;
+        }
+
+        .region-card-north {
+            border-left: 7px solid #4f7cff;
+        }
+
+        .region-card-west {
+            border-left: 7px solid #ff9f43;
+        }
+
+        .region-card-south {
+            border-left: 7px solid #20c997;
+        }
+
+        .region-card-east {
+            border-left: 7px solid #a066ff;
+        }
+
+        .region-card-title {
+            font-size: 15px;
+            font-weight: 800;
+            color: #252a34;
+            margin-bottom: 3px;
+        }
+
+        .region-card-subtitle {
+            font-size: 12px;
+            color: #697386;
+        }
+
+        div.stButton > button {
+            background: linear-gradient(90deg, #4f7cff 0%, #20c997 100%);
+            color: white;
+            border: none;
+            border-radius: 11px;
+            font-weight: 800;
+            padding: 0.58rem 1rem;
+            width: 100%;
+        }
+
+        div.stButton > button:hover {
+            background: linear-gradient(90deg, #3d66d6 0%, #17a884 100%);
+            color: white;
+            border: none;
+        }
+
+        /* Main content */
+        .app-title {
+            font-size: 31px;
+            font-weight: 850;
+            color: #252a34;
+            margin-bottom: 6px;
+        }
+
+        .app-subtitle {
+            font-size: 14px;
+            color: #687386;
+            margin-bottom: 22px;
+        }
+
+        .section-header {
+            font-size: 23px;
+            font-weight: 850;
+            color: #2c3140;
+            margin-top: 24px;
+            margin-bottom: 12px;
+        }
+
+        .small-note {
+            font-size: 13px;
+            color: #697386;
+        }
+
+        .kpi-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 18px;
+            margin-top: 12px;
+            margin-bottom: 28px;
+        }
+
+        .kpi-card {
+            background: #ffffff;
+            border-radius: 17px;
+            padding: 21px 23px;
+            box-shadow: 0 5px 20px rgba(30, 45, 90, 0.09);
+            border: 1px solid #edf0f7;
+        }
+
+        .kpi-card-blue {
+            border-top: 7px solid #4f7cff;
+            background: linear-gradient(180deg, #f5f8ff 0%, #ffffff 100%);
+        }
+
+        .kpi-card-purple {
+            border-top: 7px solid #8e5cff;
+            background: linear-gradient(180deg, #faf7ff 0%, #ffffff 100%);
+        }
+
+        .kpi-card-orange {
+            border-top: 7px solid #ff9f43;
+            background: linear-gradient(180deg, #fff8ef 0%, #ffffff 100%);
+        }
+
+        .kpi-label {
+            font-size: 13px;
+            color: #687386;
+            font-weight: 700;
+            margin-bottom: 9px;
+        }
+
+        .kpi-value {
+            font-size: 36px;
+            color: #242936;
+            font-weight: 850;
+            line-height: 1.05;
+        }
+
+        .leadership-callout {
+            background: linear-gradient(135deg, #eef4ff 0%, #f8f0ff 45%, #fff8ec 100%);
+            border: 1px solid #dfe7ff;
+            border-left: 9px solid #4f7cff;
+            border-radius: 20px;
+            padding: 23px 28px;
+            margin: 16px 0 28px 0;
+            box-shadow: 0 6px 24px rgba(41, 65, 120, 0.10);
+        }
+
+        .leadership-callout-title {
+            font-size: 24px;
+            font-weight: 850;
+            color: #242936;
+            margin-bottom: 13px;
+        }
+
+        .leadership-callout ul {
+            margin-top: 8px;
+            margin-bottom: 0;
+            padding-left: 23px;
+        }
+
+        .leadership-callout li {
+            margin-bottom: 10px;
+            font-size: 15px;
+            color: #303747;
+            line-height: 1.58;
+        }
+
+        .leadership-highlight {
+            font-weight: 850;
+            color: #1f5eff;
+        }
+
+        .leadership-warning {
+            font-weight: 850;
+            color: #d97706;
+        }
+
+        .leadership-success {
+            font-weight: 850;
+            color: #0f9f6e;
+        }
+
+        .metric-strip {
+            background: #f7f9fc;
+            border: 1px solid #e7ecf5;
+            border-radius: 14px;
+            padding: 14px 18px;
+            margin-bottom: 18px;
+            color: #3c4658;
+            font-size: 14px;
+        }
+
+        button[data-baseweb="tab"] {
+            font-size: 14px;
+            font-weight: 650;
+        }
+
+        button[data-baseweb="tab"][aria-selected="true"] {
+            color: #ff4b4b;
+        }
+
+        div[data-testid="stDataFrame"] {
+            margin-bottom: 20px;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# Base Configuration
+# ============================================================
+
+BASE_YEAR = 2026
 FORECAST_YEARS = [2027, 2028, 2029]
 
-PRODUCT_ALIASES = {
-    "Power Product": "Power Products",
-    "Power Products": "Power Products",
-    "Power System": "Power System",
-    "Industrial Automation": "Industrial Automation",
-    "Industiral Automation": "Industrial Automation",
+REGIONS = ["North", "West", "South", "East"]
+PRODUCTS = ["UPS", "Cooling", "Power Prod", "Power Sys"]
+
+PRODUCT_DISPLAY_MAP = {
     "UPS": "UPS",
     "Cooling": "Cooling",
+    "Power Prod": "Power Product",
+    "Power Sys": "Power System"
 }
 
-PRODUCT_DISPLAY = {
-    "UPS": "UPS",
-    "Cooling": "Cooling",
-    "Power Products": "Power Prod",
-    "Power System": "Power Sys",
-    "Industrial Automation": "Ind Auto",
-}
-
-PRODUCT_REVERSE_DISPLAY = {
-    value: key for key, value in PRODUCT_DISPLAY.items()
-}
-
-DEFAULT_GROWTH_PARAMETERS = {
-    "North": {
-        "UPS": {"BAU": 20.0, "DC": 10.0},
-        "Cooling": {"BAU": 20.0, "DC": 10.0},
-        "Power Products": {"BAU": 15.0, "DC": 5.0},
-        "Power System": {"BAU": 15.0, "DC": 5.0},
-        "Industrial Automation": {"BAU": 15.0, "DC": 5.0},
-    },
-    "West": {
-        "UPS": {"BAU": 30.0, "DC": 20.0},
-        "Cooling": {"BAU": 30.0, "DC": 20.0},
-        "Power Products": {"BAU": 20.0, "DC": 10.0},
-        "Power System": {"BAU": 20.0, "DC": 10.0},
-        "Industrial Automation": {"BAU": 20.0, "DC": 10.0},
-    },
-    "South": {
-        "UPS": {"BAU": 22.0, "DC": 10.0},
-        "Cooling": {"BAU": 22.0, "DC": 10.0},
-        "Power Products": {"BAU": 20.0, "DC": 5.0},
-        "Power System": {"BAU": 20.0, "DC": 5.0},
-        "Industrial Automation": {"BAU": 20.0, "DC": 5.0},
-    },
-    "East": {
-        "UPS": {"BAU": 15.0, "DC": 5.0},
-        "Cooling": {"BAU": 15.0, "DC": 5.0},
-        "Power Products": {"BAU": 15.0, "DC": 5.0},
-        "Power System": {"BAU": 15.0, "DC": 5.0},
-        "Industrial Automation": {"BAU": 15.0, "DC": 5.0},
-    },
-}
-
-DEFAULT_GROWTH_FACTORS = {
-    region: {
-        "2028 BAU Factor": 1.0,
-        "2028 DC Factor": 1.0,
-        "2029 BAU Factor": 1.0,
-        "2029 DC Factor": 1.0,
-    }
-    for region in REGIONS
-}
+DEFAULT_BASE_SE = pd.DataFrame(
+    [
+        ["North", "UPS", 35],
+        ["North", "Cooling", 18],
+        ["North", "Power Prod", 12],
+        ["North", "Power Sys", 16],
+        ["West", "UPS", 47],
+        ["West", "Cooling", 21],
+        ["West", "Power Prod", 14],
+        ["West", "Power Sys", 20],
+        ["South", "UPS", 42],
+        ["South", "Cooling", 20],
+        ["South", "Power Prod", 13],
+        ["South", "Power Sys", 19],
+        ["East", "UPS", 22],
+        ["East", "Cooling", 10],
+        ["East", "Power Prod", 5],
+        ["East", "Power Sys", 7],
+    ],
+    columns=["Region", "Product", "Current SE"]
+)
 
 DEFAULT_ATTRITION = {
-    product: 8.0 for product in PRODUCTS
+    2027: 5,
+    2028: 5,
+    2029: 5
 }
 
-APP_SCHEMA_VERSION = "v18_vp_exec_summary_no_decimals"
+DEFAULT_BAU_GROWTH = {
+    "North": {"UPS": 10, "Cooling": 10, "Power Prod": 10, "Power Sys": 10},
+    "West": {"UPS": 10, "Cooling": 10, "Power Prod": 10, "Power Sys": 10},
+    "South": {"UPS": 10, "Cooling": 10, "Power Prod": 10, "Power Sys": 10},
+    "East": {"UPS": 10, "Cooling": 10, "Power Prod": 10, "Power Sys": 10},
+}
+
+DEFAULT_DC_GROWTH = {
+    "North": {"UPS": 0, "Cooling": 0, "Power Prod": 0, "Power Sys": 0},
+    "West": {"UPS": 4, "Cooling": 4, "Power Prod": 2, "Power Sys": 2},
+    "South": {"UPS": 2, "Cooling": 2, "Power Prod": 0, "Power Sys": 0},
+    "East": {"UPS": 0, "Cooling": 0, "Power Prod": 0, "Power Sys": 0},
+}
 
 
-def init_state():
-    if st.session_state.get("schema_version") != APP_SCHEMA_VERSION:
-        st.session_state.schema_version = APP_SCHEMA_VERSION
-        st.session_state.growth_parameters = copy.deepcopy(DEFAULT_GROWTH_PARAMETERS)
-        st.session_state.growth_factors = copy.deepcopy(DEFAULT_GROWTH_FACTORS)
-        st.session_state.attrition_parameters = copy.deepcopy(DEFAULT_ATTRITION)
-        st.session_state.productive_hours = 7.0
-        st.session_state.working_days = 20
-        st.session_state.target_utilization = 90.0
-        st.session_state.input_df = None
-        st.session_state.result_df = None
-        st.session_state.needs_recalc = False
-        st.session_state.uploaded_file_id = None
-        st.session_state.last_filter_signature = None
+# ============================================================
+# Utility Functions
+# ============================================================
+
+def safe_float(value, default=0.0):
+    try:
+        if value is None:
+            return default
+        if value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
 
 
-def growth_region_to_df(region):
+def safe_int(value, default=0):
+    try:
+        if value is None:
+            return default
+        if value == "":
+            return default
+        return int(round(float(value)))
+    except Exception:
+        return default
+
+
+def pct_to_multiplier(pct_value):
+    return 1 + safe_float(pct_value, 0) / 100
+
+
+def render_region_card(region_name, css_class):
+    st.markdown(
+        f"""
+        <div class="region-card {css_class}">
+            <div class="region-card-title">{region_name} Growth</div>
+            <div class="region-card-subtitle">Product-wise BAU and DC growth assumptions</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def build_growth_editor_df(region):
     rows = []
-
     for product in PRODUCTS:
-        params = st.session_state.growth_parameters[region][product]
-
         rows.append(
             {
-                "Product": PRODUCT_DISPLAY[product],
-                "BAU": float(params["BAU"]),
-                "DC": float(params["DC"]),
+                "Product": product,
+                "BAU ^%": DEFAULT_BAU_GROWTH[region][product],
+                "DC ^%": DEFAULT_DC_GROWTH[region][product],
             }
         )
-
     return pd.DataFrame(rows)
 
 
-def growth_region_dfs_to_dict(edited_growth_dfs):
-    values = copy.deepcopy(DEFAULT_GROWTH_PARAMETERS)
+def dataframe_to_excel_bytes(sheets_dict):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for sheet_name, df in sheets_dict.items():
+            clean_sheet_name = sheet_name[:31]
+            df.to_excel(writer, index=False, sheet_name=clean_sheet_name)
+    return output.getvalue()
 
-    for region, growth_df in edited_growth_dfs.items():
-        for _, row in growth_df.iterrows():
-            product = PRODUCT_REVERSE_DISPLAY.get(str(row["Product"]).strip())
 
-            if product in PRODUCTS:
-                values[region][product] = {
-                    "BAU": float(row["BAU"]),
-                    "DC": float(row["DC"]),
+# ============================================================
+# Workforce Forecast Model
+# ============================================================
+
+class WorkforceForecastModel:
+    def __init__(
+        self,
+        base_df,
+        growth_inputs,
+        attrition_inputs,
+        selected_years
+    ):
+        self.base_df = base_df.copy()
+        self.growth_inputs = growth_inputs
+        self.attrition_inputs = attrition_inputs
+        self.selected_years = selected_years
+
+    def run(self):
+        detailed_rows = []
+
+        for _, row in self.base_df.iterrows():
+            region = row["Region"]
+            product = row["Product"]
+            current_se = safe_float(row["Current SE"], 0)
+
+            previous_required_se = current_se
+            previous_available_se = current_se
+
+            for year in FORECAST_YEARS:
+                bau_growth_pct = safe_float(
+                    self.growth_inputs[region].loc[
+                        self.growth_inputs[region]["Product"] == product,
+                        "BAU ^%"
+                    ].iloc[0],
+                    0
+                )
+
+                dc_growth_pct = safe_float(
+                    self.growth_inputs[region].loc[
+                        self.growth_inputs[region]["Product"] == product,
+                        "DC ^%"
+                    ].iloc[0],
+                    0
+                )
+
+                attrition_pct = safe_float(self.attrition_inputs.get(year, 0), 0)
+
+                available_after_attrition = previous_available_se * (1 - attrition_pct / 100)
+                bau_required_se = previous_required_se * pct_to_multiplier(bau_growth_pct)
+                dc_incremental_se = previous_required_se * (dc_growth_pct / 100)
+                combined_required_se = bau_required_se + dc_incremental_se
+                hiring_need = max(combined_required_se - available_after_attrition, 0)
+
+                closing_available_se = available_after_attrition + hiring_need
+
+                detailed_rows.append(
+                    {
+                        "Year": year,
+                        "Region": region,
+                        "Product": product,
+                        "Product Display": PRODUCT_DISPLAY_MAP.get(product, product),
+                        "Opening SE Base": round(previous_available_se, 2),
+                        "Attrition %": attrition_pct,
+                        "Available SE After Attrition": round(available_after_attrition, 2),
+                        "BAU Growth %": bau_growth_pct,
+                        "DC Growth %": dc_growth_pct,
+                        "BAU Required SE": round(bau_required_se, 2),
+                        "DC Incremental SE": round(dc_incremental_se, 2),
+                        "Combined Required SE": round(combined_required_se, 2),
+                        "Hiring Need": round(hiring_need, 2),
+                        "Closing Available SE": round(closing_available_se, 2),
+                    }
+                )
+
+                previous_required_se = combined_required_se
+                previous_available_se = closing_available_se
+
+        detailed_df = pd.DataFrame(detailed_rows)
+
+        selected_df = detailed_df[detailed_df["Year"].isin(self.selected_years)].copy()
+
+        yearwise_df = (
+            selected_df
+            .groupby("Year", as_index=False)
+            .agg(
+                {
+                    "Available SE After Attrition": "sum",
+                    "BAU Required SE": "sum",
+                    "DC Incremental SE": "sum",
+                    "Combined Required SE": "sum",
+                    "Hiring Need": "sum",
+                    "Closing Available SE": "sum",
                 }
-
-    return values
-
-
-def growth_factors_to_df():
-    rows = []
-
-    for region in REGIONS:
-        row = {"Region": region}
-        row.update(
-            st.session_state.growth_factors.get(
-                region,
-                DEFAULT_GROWTH_FACTORS[region],
             )
         )
-        rows.append(row)
 
-    return pd.DataFrame(rows)
-
-
-def growth_factors_df_to_dict(factor_df):
-    values = copy.deepcopy(DEFAULT_GROWTH_FACTORS)
-
-    for _, row in factor_df.iterrows():
-        region = str(row["Region"]).strip()
-
-        if region in REGIONS:
-            values[region] = {
-                "2028 BAU Factor": float(row["2028 BAU Factor"]),
-                "2028 DC Factor": float(row["2028 DC Factor"]),
-                "2029 BAU Factor": float(row["2029 BAU Factor"]),
-                "2029 DC Factor": float(row["2029 DC Factor"]),
-            }
-
-    return values
-
-
-def attrition_to_df():
-    rows = []
-
-    for product in PRODUCTS:
-        rows.append(
-            {
-                "Product": PRODUCT_DISPLAY[product],
-                "Attr %": float(st.session_state.attrition_parameters[product]),
-            }
-        )
-
-    return pd.DataFrame(rows)
-
-
-def attrition_df_to_dict(attrition_df):
-    values = copy.deepcopy(DEFAULT_ATTRITION)
-
-    for _, row in attrition_df.iterrows():
-        product = PRODUCT_REVERSE_DISPLAY.get(str(row["Product"]).strip())
-
-        if product in PRODUCTS:
-            values[product] = float(row["Attr %"])
-
-    return values
-
-
-def productivity_to_df():
-    return pd.DataFrame(
-        [
-            {
-                "Hrs/Day": float(st.session_state.productive_hours),
-                "Days/M": int(st.session_state.working_days),
-                "Util %": float(st.session_state.target_utilization),
-            }
+        numeric_cols = [
+            "Available SE After Attrition",
+            "BAU Required SE",
+            "DC Incremental SE",
+            "Combined Required SE",
+            "Hiring Need",
+            "Closing Available SE",
         ]
-    )
 
+        yearwise_df[numeric_cols] = yearwise_df[numeric_cols].round(0).astype(int)
 
-def add_total_row_and_column(matrix):
-    matrix = matrix.copy()
-    matrix["Total"] = matrix.sum(axis=1)
-
-    total_row = pd.DataFrame(matrix.sum(axis=0)).T
-    total_row.index = ["Total"]
-
-    return pd.concat([matrix, total_row])
-
-
-def safe_read_csv(uploaded_file):
-    raw_bytes = uploaded_file.getvalue()
-
-    try:
-        text = raw_bytes.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw_bytes.decode("latin1")
-
-    cleaned_lines = []
-
-    for line in text.splitlines():
-        line = line.strip()
-
-        while line.endswith(","):
-            line = line[:-1]
-
-        cleaned_lines.append(line)
-
-    cleaned_text = "\n".join(cleaned_lines)
-
-    df = pd.read_csv(
-        StringIO(cleaned_text),
-        engine="python",
-    )
-
-    df.columns = df.columns.str.strip()
-
-    unnamed_cols = [
-        col for col in df.columns if str(col).startswith("Unnamed")
-    ]
-
-    if unnamed_cols:
-        df = df.drop(columns=unnamed_cols)
-
-    return df
-
-
-def validate_input_data(df):
-    required_columns = [
-        "Region",
-        "Product",
-        "Current_SE",
-        "Breakdown_WO",
-        "Breakdown_Hrs",
-        "PM_WO",
-        "PM_Hrs",
-        "Startup_WO",
-        "Startup_Hrs",
-    ]
-
-    missing_columns = [
-        col for col in required_columns if col not in df.columns
-    ]
-
-    if missing_columns:
-        st.error(f"Missing required columns: {missing_columns}")
-        st.stop()
-
-    df = df.copy()
-
-    df["Region"] = df["Region"].astype(str).str.strip()
-    df["Product"] = df["Product"].astype(str).str.strip()
-    df["Product"] = df["Product"].replace(PRODUCT_ALIASES)
-
-    invalid_regions = sorted(set(df["Region"].unique()) - set(REGIONS))
-    invalid_products = sorted(set(df["Product"].unique()) - set(PRODUCTS))
-
-    if invalid_regions:
-        st.error(f"Invalid regions found in uploaded file: {invalid_regions}")
-        st.stop()
-
-    if invalid_products:
-        st.error(f"Invalid products found in uploaded file: {invalid_products}")
-        st.stop()
-
-    numeric_columns = [
-        "Current_SE",
-        "Breakdown_WO",
-        "Breakdown_Hrs",
-        "PM_WO",
-        "PM_Hrs",
-        "Startup_WO",
-        "Startup_Hrs",
-    ]
-
-    if "Year" in df.columns:
-        numeric_columns.append("Year")
-
-    for col in numeric_columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    if df[numeric_columns].isnull().any().any():
-        st.error("Some numeric columns contain blank or invalid numeric values.")
-        st.stop()
-
-    return df
-
-
-def show_bar(data, x_col, y_col, title, color_col=None):
-    if color_col is None:
-        color_col = x_col
-
-    fig = px.bar(
-        data,
-        x=x_col,
-        y=y_col,
-        color=color_col,
-        text=y_col,
-        title=title,
-    )
-
-    fig.update_traces(
-        texttemplate="%{text:.0f}",
-        textposition="outside",
-        cliponaxis=False,
-    )
-
-    fig.update_layout(
-        height=420,
-        showlegend=False,
-        yaxis_title="Engineers",
-        xaxis_title="",
-        plot_bgcolor="white",
-    )
-
-    fig.update_xaxes(tickangle=-20)
-    fig.update_yaxes(rangemode="tozero")
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        config={"displayModeBar": False},
-    )
-
-
-def show_line(data, title):
-    fig = px.line(
-        data,
-        x="Year",
-        y="Engineers",
-        color="Metric",
-        markers=True,
-        title=title,
-    )
-
-    fig.update_layout(
-        height=420,
-        yaxis_title="Engineers",
-        plot_bgcolor="white",
-    )
-
-    fig.update_xaxes(dtick=1)
-    fig.update_yaxes(rangemode="tozero")
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        config={"displayModeBar": False},
-    )
-
-
-init_state()
-
-st.sidebar.header("Planning Assumptions")
-st.sidebar.markdown("Edit assumptions and click **Apply Assumptions**.")
-
-with st.sidebar.form("planning_assumptions_form"):
-    st.subheader("2027 Region and Product Wise Growth")
-
-    edited_growth_dfs = {}
-
-    for region in REGIONS:
-        st.markdown(f"**{region} Growth**")
-
-        edited_growth_dfs[region] = st.data_editor(
-            growth_region_to_df(region),
-            hide_index=True,
-            use_container_width=True,
-            disabled=["Product"],
-            height=205,
-            column_config={
-                "BAU": st.column_config.NumberColumn(
-                    "BAU ↑%",
-                    min_value=0.0,
-                    max_value=100.0,
-                    step=1.0,
-                ),
-                "DC": st.column_config.NumberColumn(
-                    "DC ↑%",
-                    min_value=0.0,
-                    max_value=100.0,
-                    step=1.0,
-                ),
-            },
-            key=f"growth_data_editor_{region.lower()}",
-        )
-
-    st.subheader("2028 and 2029 Regional Growth Multiplication Factors")
-    st.caption(
-        "Factors multiply the previous year's BAU/DC growth. "
-        "Valid range: 0.1x to 10.0x."
-    )
-
-    edited_growth_factors_df = st.data_editor(
-        growth_factors_to_df(),
-        hide_index=True,
-        use_container_width=True,
-        disabled=["Region"],
-        height=180,
-        column_config={
-            "2028 BAU Factor": st.column_config.NumberColumn(
-                "2028 BAU x",
-                min_value=0.1,
-                max_value=10.0,
-                step=0.1,
-                format="%.1f",
-            ),
-            "2028 DC Factor": st.column_config.NumberColumn(
-                "2028 DC x",
-                min_value=0.1,
-                max_value=10.0,
-                step=0.1,
-                format="%.1f",
-            ),
-            "2029 BAU Factor": st.column_config.NumberColumn(
-                "2029 BAU x",
-                min_value=0.1,
-                max_value=10.0,
-                step=0.1,
-                format="%.1f",
-            ),
-            "2029 DC Factor": st.column_config.NumberColumn(
-                "2029 DC x",
-                min_value=0.1,
-                max_value=10.0,
-                step=0.1,
-                format="%.1f",
-            ),
-        },
-        key="growth_factors_data_editor",
-    )
-
-    st.subheader("BU Wise Attrition")
-
-    edited_attrition_df = st.data_editor(
-        attrition_to_df(),
-        hide_index=True,
-        use_container_width=True,
-        disabled=["Product"],
-        height=210,
-        column_config={
-            "Attr %": st.column_config.NumberColumn(
-                "Attr %",
-                min_value=0.0,
-                max_value=30.0,
-                step=0.5,
+        product_priority_df = (
+            selected_df
+            .groupby("Product Display", as_index=False)
+            .agg(
+                {
+                    "Combined Required SE": "sum",
+                    "Hiring Need": "sum",
+                }
             )
-        },
-        key="attrition_data_editor",
-    )
-
-    st.subheader("Workforce Productivity")
-
-    edited_productivity_df = st.data_editor(
-        productivity_to_df(),
-        hide_index=True,
-        use_container_width=True,
-        height=85,
-        column_config={
-            "Hrs/Day": st.column_config.NumberColumn(
-                "Hrs/Day",
-                min_value=1.0,
-                max_value=24.0,
-                step=0.5,
-            ),
-            "Days/M": st.column_config.NumberColumn(
-                "Days/M",
-                min_value=1,
-                max_value=31,
-                step=1,
-            ),
-            "Util %": st.column_config.NumberColumn(
-                "Util %",
-                min_value=1.0,
-                max_value=100.0,
-                step=1.0,
-            ),
-        },
-        key="productivity_data_editor",
-    )
-
-    apply_assumptions = st.form_submit_button("Apply Assumptions")
-
-if apply_assumptions:
-    st.session_state.growth_parameters = growth_region_dfs_to_dict(
-        edited_growth_dfs
-    )
-    st.session_state.growth_factors = growth_factors_df_to_dict(
-        edited_growth_factors_df
-    )
-    st.session_state.attrition_parameters = attrition_df_to_dict(
-        edited_attrition_df
-    )
-
-    p = edited_productivity_df.iloc[0]
-
-    st.session_state.productive_hours = float(p["Hrs/Day"])
-    st.session_state.working_days = int(p["Days/M"])
-    st.session_state.target_utilization = float(p["Util %"])
-    st.session_state.needs_recalc = True
-
-    st.sidebar.success("Assumptions applied. Dashboard will refresh.")
-
-st.title("AI Enabled Workforce & Capacity Planning")
-st.caption(f"Forecast model version: {MODEL_VERSION}")
-st.info(
-    "Upload workforce_input.csv and review workforce prediction for "
-    "2027, 2028 and 2029."
-)
-
-uploaded_file = st.file_uploader(
-    "Upload workforce_input.csv",
-    type=["csv"],
-)
-
-if uploaded_file is not None:
-    current_file_id = f"{uploaded_file.name}_{len(uploaded_file.getvalue())}"
-
-    if current_file_id != st.session_state.uploaded_file_id:
-        try:
-            st.session_state.input_df = validate_input_data(
-                safe_read_csv(uploaded_file)
+            .rename(
+                columns={
+                    "Product Display": "Product",
+                    "Combined Required SE": "Selected Years Required SE",
+                    "Hiring Need": "Selected Years Hiring SE",
+                }
             )
-            st.session_state.uploaded_file_id = current_file_id
-            st.session_state.needs_recalc = True
-            st.success("CSV uploaded successfully.")
-
-        except Exception as error:
-            st.error("CSV upload failed. Please check file format.")
-            st.exception(error)
-            st.stop()
-
-if st.session_state.input_df is None:
-    st.warning("Please upload workforce_input.csv to start workforce planning.")
-    st.stop()
-
-original_df = st.session_state.input_df
-
-st.markdown("### Dashboard Filters")
-
-filter_col1, filter_col2, filter_col3 = st.columns(3)
-
-filtered_df = original_df.copy()
-
-with filter_col1:
-    if "Year" in filtered_df.columns:
-        base_years = (
-            filtered_df["Year"]
-            .dropna()
-            .astype(int)
-            .sort_values()
-            .unique()
-            .tolist()
+            .sort_values("Selected Years Required SE", ascending=False)
         )
 
-        selected_base_years = st.multiselect(
-            "Select Base Year",
-            options=base_years,
-            default=base_years,
+        product_priority_df[
+            ["Selected Years Required SE", "Selected Years Hiring SE"]
+        ] = product_priority_df[
+            ["Selected Years Required SE", "Selected Years Hiring SE"]
+        ].round(0).astype(int)
+
+        regional_priority_df = (
+            selected_df
+            .groupby("Region", as_index=False)
+            .agg(
+                {
+                    "Combined Required SE": "sum",
+                    "Hiring Need": "sum",
+                }
+            )
+            .rename(
+                columns={
+                    "Combined Required SE": "Selected Years Required SE",
+                    "Hiring Need": "Selected Years Hiring SE",
+                }
+            )
+            .sort_values("Selected Years Required SE", ascending=False)
         )
 
-        filtered_df = filtered_df[
-            filtered_df["Year"].astype(int).isin(selected_base_years)
-        ]
-    else:
-        selected_base_years = ["All"]
+        regional_priority_df[
+            ["Selected Years Required SE", "Selected Years Hiring SE"]
+        ] = regional_priority_df[
+            ["Selected Years Required SE", "Selected Years Hiring SE"]
+        ].round(0).astype(int)
 
-with filter_col2:
-    available_regions = [
-        region for region in REGIONS if region in filtered_df["Region"].unique()
-    ]
+        bu_comparison_df = (
+            selected_df
+            .groupby(["Region", "Product Display"], as_index=False)
+            .agg(
+                {
+                    "Combined Required SE": "sum",
+                    "Hiring Need": "sum",
+                }
+            )
+            .rename(
+                columns={
+                    "Product Display": "Product",
+                    "Combined Required SE": "Selected Years Required SE",
+                    "Hiring Need": "Selected Years Hiring SE",
+                }
+            )
+            .sort_values(["Region", "Selected Years Required SE"], ascending=[True, False])
+        )
 
-    selected_regions = st.multiselect(
-        "Select Region",
-        options=available_regions,
-        default=available_regions,
+        bu_comparison_df[
+            ["Selected Years Required SE", "Selected Years Hiring SE"]
+        ] = bu_comparison_df[
+            ["Selected Years Required SE", "Selected Years Hiring SE"]
+        ].round(0).astype(int)
+
+        growth_factor_df = self._build_growth_factor_df()
+
+        summary = self._build_summary(
+            detailed_df=detailed_df,
+            selected_df=selected_df,
+            yearwise_df=yearwise_df
+        )
+
+        return {
+            "summary": summary,
+            "detailed_df": detailed_df,
+            "selected_df": selected_df,
+            "yearwise_df": yearwise_df,
+            "product_priority_df": product_priority_df,
+            "regional_priority_df": regional_priority_df,
+            "bu_comparison_df": bu_comparison_df,
+            "growth_factor_df": growth_factor_df
+        }
+
+    def _build_growth_factor_df(self):
+        rows = []
+        for region in REGIONS:
+            region_df = self.growth_inputs[region]
+            for _, row in region_df.iterrows():
+                rows.append(
+                    {
+                        "Region": region,
+                        "Product": PRODUCT_DISPLAY_MAP.get(row["Product"], row["Product"]),
+                        "BAU Growth %": safe_float(row["BAU ^%"], 0),
+                        "DC Growth %": safe_float(row["DC ^%"], 0),
+                    }
+                )
+        return pd.DataFrame(rows)
+
+    def _build_summary(self, detailed_df, selected_df, yearwise_df):
+        current_base_se = round(self.base_df["Current SE"].sum())
+        final_year = max(self.selected_years)
+
+        final_year_row = yearwise_df[yearwise_df["Year"] == final_year].iloc[0]
+
+        final_year_required_se = safe_int(final_year_row["Combined Required SE"])
+        available_after_attrition_final_year = safe_int(final_year_row["Available SE After Attrition"])
+        total_hiring_need = safe_int(yearwise_df["Hiring Need"].sum())
+
+        highest_hiring_row = yearwise_df.sort_values("Hiring Need", ascending=False).iloc[0]
+        highest_annual_hiring_year = safe_int(highest_hiring_row["Year"])
+        highest_annual_hiring_need = safe_int(highest_hiring_row["Hiring Need"])
+
+        final_year_growth_vs_current_base_pct = round(
+            ((final_year_required_se - current_base_se) / current_base_se) * 100
+        ) if current_base_se else 0
+
+        total_hiring_intensity_pct = round(
+            (total_hiring_need / current_base_se) * 100
+        ) if current_base_se else 0
+
+        if total_hiring_intensity_pct >= 150:
+            interpretation = "High expansion requirement"
+        elif total_hiring_intensity_pct >= 75:
+            interpretation = "Moderate to high expansion requirement"
+        else:
+            interpretation = "Controlled expansion requirement"
+
+        return {
+            "current_base_se": current_base_se,
+            "selected_years": self.selected_years,
+            "final_year": final_year,
+            "final_year_required_se": final_year_required_se,
+            "available_after_attrition_final_year": available_after_attrition_final_year,
+            "total_hiring_need": total_hiring_need,
+            "highest_annual_hiring_year": highest_annual_hiring_year,
+            "highest_annual_hiring_need": highest_annual_hiring_need,
+            "final_year_growth_vs_current_base_pct": final_year_growth_vs_current_base_pct,
+            "total_hiring_intensity_pct": total_hiring_intensity_pct,
+            "interpretation": interpretation
+        }
+
+
+# ============================================================
+# Sidebar Inputs
+# ============================================================
+
+with st.sidebar:
+    st.markdown(
+        """
+        <div class="left-pane-heading">Planning Assumptions</div>
+        <div class="left-pane-caption">Edit assumptions and click <b>Apply Assumptions</b>.</div>
+        """,
+        unsafe_allow_html=True
     )
 
-    filtered_df = filtered_df[
-        filtered_df["Region"].isin(selected_regions)
-    ]
-
-with filter_col3:
-    selected_forecast_years = st.multiselect(
-        "Select Forecast Year",
+    st.markdown("#### Forecast Years")
+    selected_years = st.multiselect(
+        "Select forecast years",
         options=FORECAST_YEARS,
-        default=FORECAST_YEARS,
+        default=FORECAST_YEARS
     )
 
-if filtered_df.empty:
-    st.warning("No data available for selected Base Year / Region filter.")
-    st.stop()
+    if not selected_years:
+        selected_years = FORECAST_YEARS
 
-if not selected_forecast_years:
-    st.warning("Please select at least one forecast year.")
-    st.stop()
+    selected_years = sorted(selected_years)
 
-filter_signature = (
-    tuple(selected_base_years),
-    tuple(selected_regions),
-    int(len(filtered_df)),
-)
-
-if st.session_state.last_filter_signature != filter_signature:
-    st.session_state.needs_recalc = True
-    st.session_state.last_filter_signature = filter_signature
-
-if st.session_state.needs_recalc or st.session_state.result_df is None:
-    try:
-        st.session_state.result_df = calculate_workforce(
-            df=filtered_df,
-            growth_parameters=st.session_state.growth_parameters,
-            growth_factors=st.session_state.growth_factors,
-            attrition_parameters=st.session_state.attrition_parameters,
-            productive_hours=st.session_state.productive_hours,
-            working_days=st.session_state.working_days,
-            target_utilization=st.session_state.target_utilization,
+    st.markdown("#### Attrition Assumptions")
+    attrition_inputs = {}
+    for year in FORECAST_YEARS:
+        attrition_inputs[year] = st.number_input(
+            f"{year} Attrition %",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(DEFAULT_ATTRITION[year]),
+            step=0.5,
+            key=f"attrition_{year}"
         )
 
-        st.session_state.needs_recalc = False
+    st.markdown("#### Region and Product Wise Growth")
 
-    except Exception as error:
-        st.error("Calculation failed. Please check workforce_model.py.")
-        st.exception(error)
-        st.stop()
+    growth_inputs = {}
 
-result = st.session_state.result_df.copy()
-result = result[result["Year"].isin(selected_forecast_years)]
-
-st.subheader("Dashboard Summary")
-
-year_summary = (
-    result.groupby("Year")
-    .agg(
-        Available=("Available Engineers", "sum"),
-        BAU_Required=("BAU Required Engineers", "sum"),
-        DC_Incremental=("DC Incremental Engineers", "sum"),
-        Combined_Required=("Combined Required Engineers", "sum"),
-        Additional_Required=("Combined Additional Required", "sum"),
-    )
-    .reset_index()
-)
-
-kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-
-kpi1.metric(
-    "Existing 2026 SE",
-    int(round(filtered_df["Current_SE"].sum(), 0)),
-)
-
-for metric_col, year in zip([kpi2, kpi3, kpi4], FORECAST_YEARS):
-    year_row = year_summary[year_summary["Year"] == year]
-    value = int(year_row["Additional_Required"].sum()) if not year_row.empty else 0
-    metric_col.metric(f"{year} Additional Required", value)
-
-kpi5.metric(
-    "Selected Years Total Hiring",
-    int(year_summary["Additional_Required"].sum()),
-)
-
-st.markdown("---")
-st.subheader("Visual Dashboard")
-
-trend_df = year_summary.melt(
-    id_vars="Year",
-    value_vars=["Available", "Combined_Required", "Additional_Required"],
-    var_name="Metric",
-    value_name="Engineers",
-)
-
-trend_df["Metric"] = trend_df["Metric"].replace(
-    {
-        "Available": "Available Engineers",
-        "Combined_Required": "Combined Required Engineers",
-        "Additional_Required": "Additional Required",
-    }
-)
-
-trend_df["Engineers"] = trend_df["Engineers"].round(0)
-
-show_line(
-    trend_df,
-    "Three-Year Workforce Forecast Trend",
-)
-
-chart_col1, chart_col2 = st.columns(2)
-
-with chart_col1:
-    show_bar(
-        result.groupby("Product")["Combined Required Engineers"]
-        .sum()
-        .reset_index(),
-        "Product",
-        "Combined Required Engineers",
-        "Selected Years Required SE by Product",
-        "Product",
+    render_region_card("North", "region-card-north")
+    growth_inputs["North"] = st.data_editor(
+        build_growth_editor_df("North"),
+        hide_index=True,
+        use_container_width=True,
+        key="north_growth_editor"
     )
 
-with chart_col2:
-    show_bar(
-        result.groupby("Region")["Combined Required Engineers"]
-        .sum()
-        .reset_index(),
-        "Region",
-        "Combined Required Engineers",
-        "Selected Years Required SE by Region",
-        "Region",
+    render_region_card("West", "region-card-west")
+    growth_inputs["West"] = st.data_editor(
+        build_growth_editor_df("West"),
+        hide_index=True,
+        use_container_width=True,
+        key="west_growth_editor"
     )
 
-chart_col3, chart_col4 = st.columns(2)
-
-with chart_col3:
-    show_bar(
-        result.groupby("Product")["Combined Additional Required"]
-        .sum()
-        .reset_index(),
-        "Product",
-        "Combined Additional Required",
-        "Selected Years Additional Requirement by Product",
-        "Product",
+    render_region_card("South", "region-card-south")
+    growth_inputs["South"] = st.data_editor(
+        build_growth_editor_df("South"),
+        hide_index=True,
+        use_container_width=True,
+        key="south_growth_editor"
     )
 
-with chart_col4:
-    show_bar(
-        result.groupby("Region")["Combined Additional Required"]
-        .sum()
-        .reset_index(),
-        "Region",
-        "Combined Additional Required",
-        "Selected Years Additional Requirement by Region",
-        "Region",
+    render_region_card("East", "region-card-east")
+    growth_inputs["East"] = st.data_editor(
+        build_growth_editor_df("East"),
+        hide_index=True,
+        use_container_width=True,
+        key="east_growth_editor"
     )
 
-tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    apply_assumptions = st.button("Apply Assumptions")
+
+
+# ============================================================
+# Run Model
+# ============================================================
+
+model = WorkforceForecastModel(
+    base_df=DEFAULT_BASE_SE,
+    growth_inputs=growth_inputs,
+    attrition_inputs=attrition_inputs,
+    selected_years=selected_years
+)
+
+results = model.run()
+
+summary = results["summary"]
+detailed_df = results["detailed_df"]
+selected_df = results["selected_df"]
+yearwise_df = results["yearwise_df"]
+product_priority_df = results["product_priority_df"]
+regional_priority_df = results["regional_priority_df"]
+bu_comparison_df = results["bu_comparison_df"]
+growth_factor_df = results["growth_factor_df"]
+
+
+# ============================================================
+# Tabs
+# ============================================================
+
+tabs = st.tabs(
     [
         "Executive Summary",
         "Input Data",
@@ -777,359 +761,277 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
         "BU Requirement Comparison",
         "Yearly Tables",
         "Growth Factors",
-        "Download",
+        "Download"
     ]
 )
 
-with tab0:
-    st.subheader("Executive Summary - VP View")
 
-    total_existing = int(round(filtered_df["Current_SE"].sum(), 0))
-    total_hiring = int(round(year_summary["Additional_Required"].sum(), 0))
-    selected_years_text = ", ".join([str(year) for year in selected_forecast_years])
+# ============================================================
+# Executive Summary - Leadership View
+# ============================================================
 
-    final_year = max(selected_forecast_years)
-    final_year_row = year_summary[year_summary["Year"] == final_year]
-
-    final_required = (
-        int(round(final_year_row["Combined_Required"].sum(), 0))
-        if not final_year_row.empty
-        else 0
+with tabsst.markdown(
+        """
+        <div class="app-title">Executive Summary - Leadership View</div>
+        <div class="app-subtitle">
+            Headcount-based workforce forecast covering service engineering capacity,
+            attrition-adjusted availability, required SE, hiring need, product priority,
+            and regional priority.
+        </div>
+        """,
+        unsafe_allow_html=True
     )
-
-    final_available = (
-        int(round(final_year_row["Available"].sum(), 0))
-        if not final_year_row.empty
-        else 0
-    )
-
-    peak_year_row = year_summary.sort_values(
-        "Additional_Required",
-        ascending=False,
-    ).iloc[0]
-
-    peak_year = int(peak_year_row["Year"])
-    peak_hiring = int(round(peak_year_row["Additional_Required"], 0))
-
-    final_growth_pct = (
-        ((final_required - total_existing) / total_existing) * 100
-        if total_existing > 0
-        else 0
-    )
-
-    hiring_intensity_pct = (
-        (total_hiring / total_existing) * 100
-        if total_existing > 0
-        else 0
-    )
-
-    if hiring_intensity_pct >= 15:
-        capacity_status = "High expansion requirement"
-        status_message = (
-            "The forecast indicates a material capacity build-up requirement. "
-            "Leadership attention is recommended for hiring phasing, onboarding "
-            "bandwidth, and regional deployment readiness."
-        )
-    elif hiring_intensity_pct >= 8:
-        capacity_status = "Moderate expansion requirement"
-        status_message = (
-            "The forecast indicates a controlled but visible manpower increase. "
-            "Hiring actions should be planned early to avoid capacity constraints "
-            "in peak demand periods."
-        )
-    else:
-        capacity_status = "Controlled requirement"
-        status_message = (
-            "The forecast indicates a manageable workforce requirement. Current "
-            "capacity and planned hiring appear broadly aligned with the selected "
-            "assumptions."
-        )
-
-    exec_kpi1, exec_kpi2, exec_kpi3, exec_kpi4 = st.columns(4)
-
-    exec_kpi1.metric("Current Base SE", total_existing)
-    exec_kpi2.metric(f"{final_year} Required SE", final_required)
-    exec_kpi3.metric("Total Hiring Need", total_hiring)
-    exec_kpi4.metric("Peak Hiring Year", f"{peak_year} ({peak_hiring} SE)")
-
-    st.markdown("---")
 
     st.markdown(
         f"""
-        ### Leadership Readout
+        <div class="kpi-container">
+            <div class="kpi-card kpi-card-blue">
+                <div class="kpi-label">Current Base SE</div>
+                <div class="kpi-value">{summary["current_base_se"]}</div>
+            </div>
+            <div class="kpi-card kpi-card-purple">
+                <div class="kpi-label">{summary["final_year"]} Required SE</div>
+                <div class="kpi-value">{summary["final_year_required_se"]}</div>
+            </div>
+            <div class="kpi-card kpi-card-orange">
+                <div class="kpi-label">Total Hiring Need</div>
+                <div class="kpi-value">{summary["total_hiring_need"]}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-        For the selected forecast period **{selected_years_text}**, the current installed service engineering base is **{total_existing} SE**.
+    st.divider()
 
-        The projected requirement by **{final_year}** is **{final_required} SE**, compared with **{final_available} SE** available after attrition before hiring.
+    st.markdown(
+        f"""
+        <div class="leadership-callout">
+            <div class="leadership-callout-title">Leadership Readout</div>
+            <ul>
+                <li>
+                    Forecast period selected:
+                    <span class="leadership-highlight">{", ".join(map(str, summary["selected_years"]))}</span>.
+                </li>
+                <li>
+                    Current installed service engineering base:
+                    <span class="leadership-highlight">{summary["current_base_se"]} SE</span>.
+                </li>
+                <li>
+                    Projected requirement by
+                    <span class="leadership-highlight">{summary["final_year"]}</span>:
+                    <span class="leadership-highlight">{summary["final_year_required_se"]} SE</span>.
+                </li>
+                <li>
+                    Available SE after attrition before hiring by
+                    <span class="leadership-highlight">{summary["final_year"]}</span>:
+                    <span class="leadership-highlight">{summary["available_after_attrition_final_year"]} SE</span>.
+                </li>
+                <li>
+                    Total additional hiring required across selected years:
+                    <span class="leadership-warning">{summary["total_hiring_need"]} SE</span>.
+                </li>
+                <li>
+                    Highest annual hiring requirement is in
+                    <span class="leadership-warning">{summary["highest_annual_hiring_year"]}</span>
+                    with
+                    <span class="leadership-warning">{summary["highest_annual_hiring_need"]} SE</span>.
+                </li>
+                <li>
+                    Leadership interpretation:
+                    <span class="leadership-warning">{summary["interpretation"]}</span>.
+                </li>
+                <li>
+                    Strategic implication:
+                    Final-year requirement represents approximately
+                    <span class="leadership-highlight">{summary["final_year_growth_vs_current_base_pct"]}%</span>
+                    movement versus the current base, while selected-year hiring intensity is approximately
+                    <span class="leadership-highlight">{summary["total_hiring_intensity_pct"]}%</span>
+                    of the current base.
+                </li>
+                <li>
+                    Recommended focus:
+                    <span class="leadership-success">hiring phasing, onboarding bandwidth,
+                    delivery readiness, utilization balance, and regional deployment capacity.</span>
+                </li>
+            </ul>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-        The model projects a total additional hiring requirement of **{total_hiring} SE**, with the highest annual hiring need in **{peak_year}** at **{peak_hiring} SE**.
+    st.markdown('<div class="section-header">Year-wise Workforce Outlook</div>', unsafe_allow_html=True)
+    st.dataframe(
+        yearwise_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
-        **Executive interpretation:** **{capacity_status}**. {status_message}
+    col1, col2 = st.columns([1.35, 1])
 
-        **Strategic implication:** The forecasted final-year requirement represents approximately **{final_growth_pct:.0f}%** movement versus the current base. The selected-year total hiring intensity is approximately **{hiring_intensity_pct:.0f}%** of the current base.
+    with col1:
+        st.markdown('<div class="section-header">Product Prioritization</div>', unsafe_allow_html=True)
+        st.dataframe(
+            product_priority_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    with col2:
+        st.markdown('<div class="section-header">Regional Prioritization</div>', unsafe_allow_html=True)
+        st.dataframe(
+            regional_priority_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+# ============================================================
+# Input Data
+# ============================================================
+
+with tabsst.markdown('<div class="section-header">Input Data</div>', unsafe_allow_html=True)
+
+    st.markdown("#### Current Base SE")
+    st.dataframe(
+        DEFAULT_BASE_SE,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.markdown("#### Selected Forecast Years")
+    st.write(selected_years)
+
+    st.markdown("#### Attrition Assumptions")
+    attrition_df = pd.DataFrame(
+        {
+            "Year": list(attrition_inputs.keys()),
+            "Attrition %": list(attrition_inputs.values())
+        }
+    )
+    st.dataframe(
+        attrition_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+# ============================================================
+# Full Results
+# ============================================================
+
+with tabsst.markdown('<div class="section-header">Full Results</div>', unsafe_allow_html=True)
+
+    st.markdown(
         """
-    )
-
-    st.markdown("### Year-wise Workforce Outlook")
-
-    year_summary_display = year_summary.copy()
-
-    numeric_cols = [
-        "Available",
-        "BAU_Required",
-        "DC_Incremental",
-        "Combined_Required",
-        "Additional_Required",
-    ]
-
-    year_summary_display[numeric_cols] = (
-        year_summary_display[numeric_cols]
-        .round(0)
-        .astype(int)
-    )
-
-    year_summary_display = year_summary_display.rename(
-        columns={
-            "Available": "Available SE After Attrition",
-            "BAU_Required": "BAU Required SE",
-            "DC_Incremental": "DC Incremental SE",
-            "Combined_Required": "Combined Required SE",
-            "Additional_Required": "Additional Hiring SE",
-        }
+        <div class="metric-strip">
+            Full result table shows each region-product-year combination with opening base,
+            attrition-adjusted availability, BAU requirement, DC incremental requirement,
+            combined requirement, hiring need, and closing available SE.
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     st.dataframe(
-        year_summary_display,
+        detailed_df,
         use_container_width=True,
+        hide_index=True
     )
 
-    product_exec = (
-        result.groupby("Product")
-        .agg(
-            Required_SE=("Combined Required Engineers", "sum"),
-            Hiring_SE=("Combined Additional Required", "sum"),
-        )
-        .reset_index()
+
+# ============================================================
+# BU Requirement Comparison
+# ============================================================
+
+with tabsst.markdown('<div class="section-header">BU Requirement Comparison</div>', unsafe_allow_html=True)
+
+    st.dataframe(
+        bu_comparison_df,
+        use_container_width=True,
+        hide_index=True
     )
 
-    product_exec[["Required_SE", "Hiring_SE"]] = (
-        product_exec[["Required_SE", "Hiring_SE"]]
-        .round(0)
-        .astype(int)
+    st.markdown("#### Pivot View: Region x Product")
+    pivot_required = bu_comparison_df.pivot_table(
+        index="Region",
+        columns="Product",
+        values="Selected Years Required SE",
+        aggfunc="sum",
+        fill_value=0
     )
 
-    product_exec = product_exec.sort_values(
-        "Hiring_SE",
-        ascending=False,
+    st.dataframe(
+        pivot_required,
+        use_container_width=True
     )
 
-    region_exec = (
-        result.groupby("Region")
-        .agg(
-            Required_SE=("Combined Required Engineers", "sum"),
-            Hiring_SE=("Combined Additional Required", "sum"),
-        )
-        .reset_index()
-    )
 
-    region_exec[["Required_SE", "Hiring_SE"]] = (
-        region_exec[["Required_SE", "Hiring_SE"]]
-        .round(0)
-        .astype(int)
-    )
+# ============================================================
+# Yearly Tables
+# ============================================================
 
-    region_exec = region_exec.sort_values(
-        "Hiring_SE",
-        ascending=False,
-    )
+with tabsst.markdown('<div class="section-header">Yearly Tables</div>', unsafe_allow_html=True)
 
-    summary_col1, summary_col2 = st.columns(2)
-
-    with summary_col1:
-        st.markdown("### Product Prioritization")
-
+    for year in FORECAST_YEARS:
+        st.markdown(f"#### {year}")
+        year_df = detailed_df[detailed_df["Year"] == year].copy()
         st.dataframe(
-            product_exec.rename(
-                columns={
-                    "Required_SE": "Selected Years Required SE",
-                    "Hiring_SE": "Selected Years Hiring SE",
-                }
-            ),
+            year_df,
             use_container_width=True,
+            hide_index=True
         )
 
-    with summary_col2:
-        st.markdown("### Regional Prioritization")
 
-        st.dataframe(
-            region_exec.rename(
-                columns={
-                    "Required_SE": "Selected Years Required SE",
-                    "Hiring_SE": "Selected Years Hiring SE",
-                }
-            ),
-            use_container_width=True,
-        )
+# ============================================================
+# Growth Factors
+# ============================================================
 
-    st.markdown("### VP Action Notes")
+with tabsst.markdown('<div class="section-header">Growth Factors</div>', unsafe_allow_html=True)
 
-    if total_hiring > 0:
-        top_product_name = product_exec.iloc[0]["Product"]
-        top_product_hiring = int(product_exec.iloc[0]["Hiring_SE"])
-
-        top_region_name = region_exec.iloc[0]["Region"]
-        top_region_hiring = int(region_exec.iloc[0]["Hiring_SE"])
-
-        st.warning(
-            f"Highest product-level hiring pressure is in **{top_product_name}** "
-            f"with **{top_product_hiring} SE**. Highest regional hiring pressure "
-            f"is in **{top_region_name}** with **{top_region_hiring} SE**. "
-            f"Recommended VP-level actions: validate growth assumptions with "
-            f"business leaders, phase hiring by quarter, confirm onboarding "
-            f"capacity, and review cross-region redeployment options before "
-            f"external hiring commitment."
-        )
-
-    else:
-        st.success(
-            "No additional hiring requirement is projected under the selected "
-            "assumptions. Recommended VP-level action: validate whether growth, "
-            "attrition, and DC assumptions are realistic, because zero hiring may "
-            "indicate either sufficient capacity or conservative workload assumptions."
-        )
-
-with tab1:
-    st.subheader("Uploaded Input Data")
-    st.dataframe(
-        filtered_df,
-        use_container_width=True,
+    st.markdown(
+        """
+        <div class="metric-strip">
+            Growth factors are taken from the left planning pane.
+            BAU growth drives normal requirement expansion.
+            DC growth is treated as incremental demand on top of BAU requirement.
+        </div>
+        """,
+        unsafe_allow_html=True
     )
-
-with tab2:
-    st.subheader("Workforce Planning Results")
-    st.dataframe(
-        result,
-        use_container_width=True,
-    )
-
-with tab3:
-    st.subheader("BU Requirement Comparison")
-
-    existing = (
-        filtered_df.groupby("Product")["Current_SE"]
-        .sum()
-        .reset_index()
-        .rename(columns={"Current_SE": "Existing 2026 SE"})
-    )
-
-    required = (
-        result.pivot_table(
-            values="Combined Required Engineers",
-            index="Product",
-            columns="Year",
-            aggfunc="sum",
-            fill_value=0,
-        )
-        .reset_index()
-    )
-
-    required = required.rename(
-        columns={
-            year: f"{year} Required SE"
-            for year in FORECAST_YEARS
-        }
-    )
-
-    comparison = existing.merge(
-        required,
-        on="Product",
-        how="outer",
-    ).fillna(0)
-
-    if "2029 Required SE" in comparison.columns:
-        comparison["2029 Gap / Surplus"] = (
-            comparison["2029 Required SE"]
-            - comparison["Existing 2026 SE"]
-        ).round(1)
-
-        comparison["2029 Additional Required"] = comparison[
-            "2029 Gap / Surplus"
-        ].apply(
-            lambda value: max(math.ceil(value), 0)
-        )
 
     st.dataframe(
-        comparison.round(0),
+        growth_factor_df,
         use_container_width=True,
+        hide_index=True
     )
 
-with tab4:
-    st.subheader("Yearly Requirement Tables")
 
-    for year in selected_forecast_years:
-        year_result = result[result["Year"] == year]
+# ============================================================
+# Download
+# ============================================================
 
-        st.markdown(f"### {year} Combined BAU + DC Requirement Table")
+with tabsst.markdown('<div class="section-header">Download</div>', unsafe_allow_html=True)
 
-        combined_table = year_result.pivot_table(
-            values="Combined Required Engineers",
-            index="Product",
-            columns="Region",
-            fill_value=0,
-            aggfunc="sum",
-        )
+    download_sheets = {
+        "Executive Summary": pd.DataFrame([summary]),
+        "Yearwise Outlook": yearwise_df,
+        "Product Priority": product_priority_df,
+        "Regional Priority": regional_priority_df,
+        "BU Comparison": bu_comparison_df,
+        "Full Results": detailed_df,
+        "Growth Factors": growth_factor_df,
+        "Input Base SE": DEFAULT_BASE_SE,
+    }
 
-        st.dataframe(
-            add_total_row_and_column(combined_table).round(0),
-            use_container_width=True,
-        )
-
-        st.markdown(f"### {year} Combined Hiring Requirement Table")
-
-        hiring_table = year_result.pivot_table(
-            values="Combined Additional Required",
-            index="Product",
-            columns="Region",
-            fill_value=0,
-            aggfunc="sum",
-        )
-
-        st.dataframe(
-            add_total_row_and_column(hiring_table).round(0),
-            use_container_width=True,
-        )
-
-with tab5:
-    st.subheader("Growth Factors Used for 2028 and 2029")
-
-    st.dataframe(
-        growth_factors_to_df(),
-        use_container_width=True,
-    )
-
-    st.subheader("Effective BAU/DC Growth by Year")
-
-    st.dataframe(
-        result[
-            [
-                "Region",
-                "Product",
-                "Year",
-                "BAU Growth %",
-                "DC Growth %",
-            ]
-        ].drop_duplicates(),
-        use_container_width=True,
-    )
-
-with tab6:
-    st.subheader("Download Output")
-
-    csv_output = result.to_csv(index=False).encode("utf-8")
+    excel_bytes = dataframe_to_excel_bytes(download_sheets)
 
     st.download_button(
-        label="Download Workforce Planning Output 2027-2029",
-        data=csv_output,
-        file_name="workforce_planning_output_2027_2028_2029.csv",
-        mime="text/csv",
+        label="Download Workforce Forecast Excel",
+        data=excel_bytes,
+        file_name="v17_headcount_based_forecast_leadership_view.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+    st.markdown("#### Preview of Download Sheets")
+    st.write(list(download_sheets.keys()))
