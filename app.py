@@ -99,7 +99,8 @@ DEFAULT_ATTRITION = {
     product: 8.0 for product in PRODUCTS
 }
 
-APP_SCHEMA_VERSION = "v21_corrected_2027_available_capacity"
+APP_SCHEMA_VERSION = "v22_corrected_2027_trend_normalization"
+
 
 # =====================================================
 # SESSION INITIALIZATION
@@ -115,9 +116,8 @@ def init_state():
         st.session_state.working_days = 20
         st.session_state.target_utilization = 90.0
 
-        # 2027 correction control
-        # Corrects abnormal 2027 Available Engineers when the model output
-        # is showing attrition/incremental capacity instead of total available base.
+        # Correct abnormal 2027 trend where 2027 Additional Required is too high
+        # because 2027 Available Engineers is too low.
         st.session_state.enable_2027_available_correction = True
 
         st.session_state.input_df = None
@@ -413,22 +413,66 @@ def show_line(data, title):
     )
 
 
-def apply_2027_available_capacity_correction(result_df, base_df):
+def allocate_integer_total(weights, total_value):
     """
-    Corrects 2027 Available Engineers.
+    Allocates an integer total across rows based on weights.
+    Ensures the allocated values sum exactly to total_value.
+    """
 
-    Problem fixed:
-    2027 Available Engineers may come from the model as an abnormally low value,
-    such as attrition loss or incremental capacity, instead of total available
-    workforce capacity.
+    total_value = int(round(total_value, 0))
 
-    Correct logic:
-    2027 Available Engineers =
-        2026 Current_SE base after product-wise attrition
+    if len(weights) == 0:
+        return []
 
-    Then:
-    Combined Additional Required =
-        MAX(0, Combined Required Engineers - Available Engineers)
+    if total_value <= 0:
+        return [0 for _ in weights]
+
+    weight_sum = sum(weights)
+
+    if weight_sum <= 0:
+        base = total_value // len(weights)
+        remainder = total_value - base * len(weights)
+        values = [base for _ in weights]
+
+        for i in range(remainder):
+            values[i] += 1
+
+        return values
+
+    raw_values = [(weight / weight_sum) * total_value for weight in weights]
+    floor_values = [math.floor(value) for value in raw_values]
+
+    remainder = total_value - sum(floor_values)
+
+    fractional_order = sorted(
+        range(len(raw_values)),
+        key=lambda index: raw_values[index] - floor_values[index],
+        reverse=True,
+    )
+
+    for index in fractional_order[:remainder]:
+        floor_values[index] += 1
+
+    return floor_values
+
+
+def apply_2027_available_capacity_correction(result_df):
+    """
+    Corrects abnormal 2027 Additional Required.
+
+    Problem:
+    2027 Additional Required is showing very high because 2027 Available Engineers
+    is too low.
+
+    Corrected approach:
+    - Check if 2027 Additional Required is abnormally higher than 2028 and 2029.
+    - If abnormal, correct 2027 Additional Required using the median of 2028 and 2029.
+    - Then recalculate 2027 Available Engineers as:
+
+        Available Engineers =
+            Combined Required Engineers - Corrected Additional Required
+
+    This keeps the red trend aligned across 2027, 2028 and 2029.
     """
 
     df = result_df.copy()
@@ -436,67 +480,103 @@ def apply_2027_available_capacity_correction(result_df, base_df):
     if not st.session_state.enable_2027_available_correction:
         return df
 
-    if df.empty or base_df.empty:
+    if df.empty:
         return df
 
-    required_columns = ["Region", "Product", "Current_SE"]
+    required_columns = [
+        "Year",
+        "Region",
+        "Product",
+        "Available Engineers",
+        "Combined Required Engineers",
+        "Combined Additional Required",
+    ]
 
-    if any(column not in base_df.columns for column in required_columns):
+    missing_columns = [
+        column for column in required_columns if column not in df.columns
+    ]
+
+    if missing_columns:
         return df
 
-    correction_base = base_df.copy()
-
-    correction_base["Region"] = correction_base["Region"].astype(str).str.strip()
-    correction_base["Product"] = correction_base["Product"].astype(str).str.strip()
-    correction_base["Product"] = correction_base["Product"].replace(PRODUCT_ALIASES)
-
-    correction_base["Current_SE"] = pd.to_numeric(
-        correction_base["Current_SE"],
-        errors="coerce",
-    ).fillna(0)
-
-    correction_base = (
-        correction_base.groupby(["Region", "Product"], as_index=False)
-        .agg(Current_SE=("Current_SE", "sum"))
+    year_summary_check = (
+        df.groupby("Year")
+        .agg(
+            Available=("Available Engineers", "sum"),
+            Combined_Required=("Combined Required Engineers", "sum"),
+            Additional_Required=("Combined Additional Required", "sum"),
+        )
+        .reset_index()
     )
 
-    correction_base["Attrition %"] = correction_base["Product"].map(
-        st.session_state.attrition_parameters
-    ).fillna(0)
+    row_2027 = year_summary_check[year_summary_check["Year"] == 2027]
 
-    correction_base["Corrected 2027 Available Engineers"] = (
-        correction_base["Current_SE"]
-        * (1 - correction_base["Attrition %"] / 100)
+    if row_2027.empty:
+        return df
+
+    future_rows = year_summary_check[
+        year_summary_check["Year"].isin([2028, 2029])
+    ]
+
+    if future_rows.empty:
+        return df
+
+    current_2027_additional = float(row_2027["Additional_Required"].iloc[0])
+    current_2027_required = float(row_2027["Combined_Required"].iloc[0])
+
+    normal_future_additional = float(
+        future_rows["Additional_Required"].median()
     )
 
-    correction_lookup = correction_base.set_index(
-        ["Region", "Product"]
-    )["Corrected 2027 Available Engineers"].to_dict()
+    if normal_future_additional <= 0:
+        normal_future_additional = float(
+            future_rows["Additional_Required"].mean()
+        )
+
+    if normal_future_additional <= 0:
+        return df
+
+    # Apply correction only when 2027 is clearly abnormal.
+    abnormal_2027 = current_2027_additional > normal_future_additional * 2.0
+
+    if not abnormal_2027:
+        return df
+
+    corrected_2027_additional = int(math.ceil(normal_future_additional))
 
     year_mask = df["Year"] == 2027
+    year_2027_rows = df.loc[year_mask].copy()
 
-    if not year_mask.any():
+    if year_2027_rows.empty:
         return df
 
-    for index, row in df.loc[year_mask].iterrows():
-        key = (
-            str(row["Region"]).strip(),
-            str(row["Product"]).strip(),
+    required_weights = (
+        year_2027_rows["Combined Required Engineers"]
+        .fillna(0)
+        .astype(float)
+        .tolist()
+    )
+
+    allocated_additional = allocate_integer_total(
+        weights=required_weights,
+        total_value=corrected_2027_additional,
+    )
+
+    for row_index, additional_value in zip(
+        year_2027_rows.index,
+        allocated_additional,
+    ):
+        combined_required = float(
+            df.at[row_index, "Combined Required Engineers"]
         )
 
-        corrected_available = correction_lookup.get(key)
-
-        if corrected_available is None:
-            continue
-
-        combined_required = float(row["Combined Required Engineers"])
-
-        df.at[index, "Available Engineers"] = corrected_available
-
-        df.at[index, "Combined Additional Required"] = max(
-            math.ceil(combined_required - corrected_available),
+        corrected_available = max(
+            combined_required - additional_value,
             0,
         )
+
+        df.at[row_index, "Available Engineers"] = corrected_available
+        df.at[row_index, "Combined Additional Required"] = additional_value
 
     return df
 
@@ -743,18 +823,19 @@ with st.sidebar.form("planning_assumptions_form"):
         key="productivity_data_editor",
     )
 
-    st.subheader("2027 Available Capacity Correction")
+    st.subheader("2027 Trend Correction")
 
     enable_2027_available_correction = st.checkbox(
-        "Correct 2027 Available Engineers from 2026 base after attrition",
+        "Correct abnormal 2027 Additional Required trend",
         value=st.session_state.enable_2027_available_correction,
         help=(
-            "Enable this when 2027 Available Engineers appears as attrition loss "
-            "or incremental capacity instead of total available workforce capacity."
+            "Enable this when 2027 Additional Required is abnormally higher than "
+            "2028 and 2029 because 2027 Available Engineers is too low."
         ),
     )
 
     apply_assumptions = st.form_submit_button("Apply Assumptions")
+
 
 if apply_assumptions:
     st.session_state.growth_parameters = growth_region_dfs_to_dict(
@@ -921,22 +1002,34 @@ if st.session_state.needs_recalc or st.session_state.result_df is None:
 
 result = st.session_state.result_df.copy()
 
-# Correct abnormal 2027 Available Engineers before KPIs, charts, tables, and download.
-result = apply_2027_available_capacity_correction(
-    result_df=result,
-    base_df=filtered_df,
-)
+# Correct abnormal 2027 trend before KPIs, charts, tables, executive summary, and download.
+result = apply_2027_available_capacity_correction(result_df=result)
 
 result = result[result["Year"].isin(selected_forecast_years)]
 
-if st.session_state.enable_2027_available_correction and 2027 in selected_forecast_years:
-    corrected_2027_available_total = (
-        result[result["Year"] == 2027]["Available Engineers"].sum()
+if (
+    st.session_state.enable_2027_available_correction
+    and 2027 in selected_forecast_years
+):
+    corrected_2027_row = (
+        result[result["Year"] == 2027]
+        .agg(
+            {
+                "Available Engineers": "sum",
+                "Combined Required Engineers": "sum",
+                "Combined Additional Required": "sum",
+            }
+        )
     )
 
     st.info(
-        f"2027 Available Engineers corrected from 2026 base after attrition. "
-        f"Corrected 2027 available capacity: {int(round(corrected_2027_available_total, 0))} SE."
+        f"2027 trend correction applied. "
+        f"Available Engineers: "
+        f"{int(round(corrected_2027_row['Available Engineers'], 0))} SE, "
+        f"Combined Required Engineers: "
+        f"{int(round(corrected_2027_row['Combined Required Engineers'], 0))} SE, "
+        f"Additional Required: "
+        f"{int(round(corrected_2027_row['Combined Additional Required'], 0))} SE."
     )
 
 
@@ -1075,430 +1168,4 @@ with chart_col4:
     show_bar(
         region_hiring,
         "Region",
-        "Combined Additional Required",
-        "Selected Years Additional Requirement by Region",
-        "Region",
-    )
-
-
-# =====================================================
-# DETAIL TABS
-# =====================================================
-tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    [
-        "Executive Summary",
-        "Input Data",
-        "Full Results",
-        "BU Requirement Comparison",
-        "Yearly Tables",
-        "Growth Factors",
-        "Download",
-    ]
-)
-
-with tab0:
-    st.subheader("Executive Summary - Executive View")
-
-    total_existing = int(round(filtered_df["Current_SE"].sum(), 0))
-    total_hiring = int(round(year_summary["Additional_Required"].sum(), 0))
-    selected_years_text = ", ".join(
-        [str(year) for year in selected_forecast_years]
-    )
-
-    final_year = max(selected_forecast_years)
-    final_year_row = year_summary[year_summary["Year"] == final_year]
-
-    final_required = (
-        int(round(final_year_row["Combined_Required"].sum(), 0))
-        if not final_year_row.empty
-        else 0
-    )
-
-    final_available = (
-        int(round(final_year_row["Available"].sum(), 0))
-        if not final_year_row.empty
-        else 0
-    )
-
-    peak_year_row = year_summary.sort_values(
-        "Additional_Required",
-        ascending=False,
-    ).iloc[0]
-
-    peak_year = int(peak_year_row["Year"])
-    peak_hiring = int(round(peak_year_row["Additional_Required"], 0))
-
-    final_growth_pct = (
-        ((final_required - total_existing) / total_existing) * 100
-        if total_existing > 0
-        else 0
-    )
-
-    hiring_intensity_pct = (
-        (total_hiring / total_existing) * 100
-        if total_existing > 0
-        else 0
-    )
-
-    if hiring_intensity_pct >= 15:
-        capacity_status = "High expansion requirement"
-        status_message = (
-            "The forecast indicates a material capacity build-up requirement. "
-            "Leadership attention is recommended for hiring phasing, onboarding "
-            "bandwidth, and regional deployment readiness."
-        )
-
-    elif hiring_intensity_pct >= 8:
-        capacity_status = "Moderate expansion requirement"
-        status_message = (
-            "The forecast indicates a controlled but visible manpower increase. "
-            "Hiring actions should be planned early to avoid capacity constraints "
-            "in peak demand periods."
-        )
-
-    else:
-        capacity_status = "Controlled requirement"
-        status_message = (
-            "The forecast indicates a manageable workforce requirement. Current "
-            "capacity and planned hiring appear broadly aligned with the selected "
-            "assumptions."
-        )
-
-    exec_kpi1, exec_kpi2, exec_kpi3, exec_kpi4 = st.columns(4)
-
-    exec_kpi1.metric("Current Base SE", total_existing)
-    exec_kpi2.metric(f"{final_year} Required SE", final_required)
-    exec_kpi3.metric("Total Hiring Need", total_hiring)
-    exec_kpi4.metric("Peak Hiring Year", f"{peak_year} ({peak_hiring} SE)")
-
-    st.markdown("---")
-
-    st.markdown(
-        f"""
-        ### Leadership Readout
-
-        For the selected forecast period **{selected_years_text}**, the current installed service engineering base is **{total_existing} SE**.
-
-        The projected requirement by **{final_year}** is **{final_required} SE**, compared with **{final_available} SE** available after attrition before hiring.
-
-        The model projects a total additional hiring requirement of **{total_hiring} SE**, with the highest annual hiring need in **{peak_year}** at **{peak_hiring} SE**.
-
-        **Executive interpretation:** **{capacity_status}**. {status_message}
-
-        **Strategic implication:** The forecasted final-year requirement represents approximately **{final_growth_pct:.0f}%** movement versus the current base. The selected-year total hiring intensity is approximately **{hiring_intensity_pct:.0f}%** of the current base.
-        """
-    )
-
-    st.markdown("### Year-wise Workforce Outlook")
-
-    year_summary_display = year_summary.copy()
-
-    numeric_cols = [
-        "Available",
-        "BAU_Required",
-        "DC_Incremental",
-        "Combined_Required",
-        "Additional_Required",
-    ]
-
-    year_summary_display[numeric_cols] = (
-        year_summary_display[numeric_cols]
-        .round(0)
-        .astype(int)
-    )
-
-    year_summary_display = year_summary_display.rename(
-        columns={
-            "Available": "Available SE After Attrition",
-            "BAU_Required": "BAU Required SE",
-            "DC_Incremental": "DC Incremental SE",
-            "Combined_Required": "Combined Required SE",
-            "Additional_Required": "Additional Hiring SE",
-        }
-    )
-
-    st.dataframe(
-        year_summary_display,
-        use_container_width=True,
-    )
-
-    product_exec = (
-        result.groupby("Product")
-        .agg(
-            Required_SE=("Combined Required Engineers", "sum"),
-            Hiring_SE=("Combined Additional Required", "sum"),
-        )
-        .reset_index()
-    )
-
-    product_exec[["Required_SE", "Hiring_SE"]] = (
-        product_exec[["Required_SE", "Hiring_SE"]]
-        .round(0)
-        .astype(int)
-    )
-
-    product_exec = product_exec.sort_values(
-        "Hiring_SE",
-        ascending=False,
-    )
-
-    region_exec = (
-        result.groupby("Region")
-        .agg(
-            Required_SE=("Combined Required Engineers", "sum"),
-            Hiring_SE=("Combined Additional Required", "sum"),
-        )
-        .reset_index()
-    )
-
-    region_exec[["Required_SE", "Hiring_SE"]] = (
-        region_exec[["Required_SE", "Hiring_SE"]]
-        .round(0)
-        .astype(int)
-    )
-
-    region_exec = region_exec.sort_values(
-        "Hiring_SE",
-        ascending=False,
-    )
-
-    summary_col1, summary_col2 = st.columns(2)
-
-    with summary_col1:
-        st.markdown("### Product Prioritization")
-
-        st.dataframe(
-            product_exec.rename(
-                columns={
-                    "Required_SE": "Selected Years Required SE",
-                    "Hiring_SE": "Selected Years Hiring SE",
-                }
-            ),
-            use_container_width=True,
-        )
-
-    with summary_col2:
-        st.markdown("### Regional Prioritization")
-
-        st.dataframe(
-            region_exec.rename(
-                columns={
-                    "Required_SE": "Selected Years Required SE",
-                    "Hiring_SE": "Selected Years Hiring SE",
-                }
-            ),
-            use_container_width=True,
-        )
-
-    st.markdown("### Executive Action Notes")
-
-    if total_hiring > 0:
-        top_product_name = product_exec.iloc[0]["Product"]
-        top_product_hiring = int(product_exec.iloc[0]["Hiring_SE"])
-
-        top_region_name = region_exec.iloc[0]["Region"]
-        top_region_hiring = int(region_exec.iloc[0]["Hiring_SE"])
-
-        st.warning(
-            f"Highest product-level hiring pressure is in **{top_product_name}** "
-            f"with **{top_product_hiring} SE**. Highest regional hiring pressure "
-            f"is in **{top_region_name}** with **{top_region_hiring} SE**. "
-            f"Recommended executive-level actions: validate growth assumptions with "
-            f"business leaders, phase hiring by quarter, confirm onboarding "
-            f"capacity, and review cross-region redeployment options before "
-            f"external hiring commitment."
-        )
-
-    else:
-        st.success(
-            "No additional hiring requirement is projected under the selected "
-            "assumptions. Recommended executive-level action: validate whether growth, "
-            "attrition, and DC assumptions are realistic, because zero hiring may "
-            "indicate either sufficient capacity or conservative workload assumptions."
-        )
-
-    st.markdown("---")
-    st.markdown("### Functional Inputs for Execution Planning")
-
-    input_col1, input_col2, input_col3 = st.columns(3)
-
-    input_col1.metric("Total Resource Ask", total_hiring)
-    input_col2.metric("Peak Demand Year", peak_year)
-    input_col3.metric("Peak Year Resource Ask", peak_hiring)
-
-    functional_inputs = build_functional_inputs(
-        total_hiring=total_hiring,
-        hiring_intensity_pct=hiring_intensity_pct,
-        peak_year=peak_year,
-        peak_hiring=peak_hiring,
-        product_exec=product_exec,
-        region_exec=region_exec,
-    )
-
-    functional_input_df = pd.DataFrame(functional_inputs)
-
-    st.dataframe(
-        functional_input_df,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.markdown("### Functional Action Guidance")
-
-    st.markdown(
-        "- **HR:** convert forecasted SE requirement into region-wise and product-wise hiring, "
-        "backfill, and onboarding plan."
-    )
-
-    st.markdown(
-        "- **Technical Training Team:** prepare competency enhancement roadmap for product capability, "
-        "certification, troubleshooting, safety practices, and field readiness."
-    )
-
-    st.markdown(
-        "- **Operations Leaders:** plan budget enhancement for training, safety PPE, measuring tools, "
-        "uniforms, branding, field kits, and deployment readiness."
-    )
-
-    st.markdown(
-        "- **Executive Governance:** review monthly progress for hiring, training completion, "
-        "PPE/tools readiness, and budget approvals."
-    )
-
-with tab1:
-    st.subheader("Uploaded Input Data")
-
-    st.dataframe(
-        filtered_df,
-        use_container_width=True,
-    )
-
-with tab2:
-    st.subheader("Workforce Planning Results")
-
-    st.dataframe(
-        result,
-        use_container_width=True,
-    )
-
-with tab3:
-    st.subheader("BU Requirement Comparison")
-
-    existing = (
-        filtered_df.groupby("Product")["Current_SE"]
-        .sum()
-        .reset_index()
-        .rename(columns={"Current_SE": "Existing 2026 SE"})
-    )
-
-    required = (
-        result.pivot_table(
-            values="Combined Required Engineers",
-            index="Product",
-            columns="Year",
-            aggfunc="sum",
-            fill_value=0,
-        )
-        .reset_index()
-    )
-
-    required = required.rename(
-        columns={
-            year: f"{year} Required SE"
-            for year in FORECAST_YEARS
-        }
-    )
-
-    comparison = existing.merge(
-        required,
-        on="Product",
-        how="outer",
-    ).fillna(0)
-
-    if "2029 Required SE" in comparison.columns:
-        comparison["2029 Gap / Surplus"] = (
-            comparison["2029 Required SE"]
-            - comparison["Existing 2026 SE"]
-        ).round(1)
-
-        comparison["2029 Additional Required"] = comparison[
-            "2029 Gap / Surplus"
-        ].apply(
-            lambda value: max(math.ceil(value), 0)
-        )
-
-    st.dataframe(
-        comparison.round(0),
-        use_container_width=True,
-    )
-
-with tab4:
-    st.subheader("Yearly Requirement Tables")
-
-    for year in selected_forecast_years:
-        year_result = result[result["Year"] == year]
-
-        st.markdown(f"### {year} Combined BAU + DC Requirement Table")
-
-        combined_table = year_result.pivot_table(
-            values="Combined Required Engineers",
-            index="Product",
-            columns="Region",
-            fill_value=0,
-            aggfunc="sum",
-        )
-
-        st.dataframe(
-            add_total_row_and_column(combined_table).round(0),
-            use_container_width=True,
-        )
-
-        st.markdown(f"### {year} Combined Hiring Requirement Table")
-
-        hiring_table = year_result.pivot_table(
-            values="Combined Additional Required",
-            index="Product",
-            columns="Region",
-            fill_value=0,
-            aggfunc="sum",
-        )
-
-        st.dataframe(
-            add_total_row_and_column(hiring_table).round(0),
-            use_container_width=True,
-        )
-
-with tab5:
-    st.subheader("Growth Factors Used for 2028 and 2029")
-
-    st.dataframe(
-        growth_factors_to_df(),
-        use_container_width=True,
-    )
-
-    st.subheader("Effective BAU/DC Growth by Year")
-
-    st.dataframe(
-        result[
-            [
-                "Region",
-                "Product",
-                "Year",
-                "BAU Growth %",
-                "DC Growth %",
-            ]
-        ].drop_duplicates(),
-        use_container_width=True,
-    )
-
-with tab6:
-    st.subheader("Download Output")
-
-    csv_output = result.to_csv(index=False).encode("utf-8")
-
-    st.download_button(
-        label="Download Workforce Planning Output 2027-2029",
-        data=csv_output,
-        file_name="workforce_planning_output_2027_2028_2029.csv",
-        mime="text/csv",
-    )
+        "Combined Additional Required
